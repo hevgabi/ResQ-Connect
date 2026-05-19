@@ -2,7 +2,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 
-import '../../models/sos_request_model.dart';
+import '../../models/sos_request_model.dart'; // Tiyaking itong model file ang naglalaman ng SOSRequestModel class mo
 import '../../models/user_model.dart';
 import '../../services/firestore_service.dart';
 import '../../services/location_service.dart';
@@ -19,8 +19,7 @@ class MissionQueueScreen extends StatefulWidget {
 
 class _MissionQueueScreenState extends State<MissionQueueScreen> {
   final FirestoreService _firestoreService = FirestoreService.instance;
-  final LocationService _locationService = LocationService();
-
+  final LocationService _locationService = LocationService.instance;
   final String uid = FirebaseAuth.instance.currentUser!.uid;
 
   bool _onDuty = false;
@@ -29,26 +28,36 @@ class _MissionQueueScreenState extends State<MissionQueueScreen> {
   double? _rescuerLng;
   bool _accepting = false;
 
+  // Listahan ng mga SOS IDs na pansamantalang tinago ng rescuer (Deferred)
+  final Set<String> _deferredMissionIds = {};
+
   @override
   void initState() {
     super.initState();
-    _loadRescuerState();
+    _subscribeToRescuerState();
     _captureLocation();
   }
 
-  Future<void> _loadRescuerState() async {
-    final doc = await _firestoreService.getRescuerById(uid);
-    if (!mounted || doc == null) return;
-    setState(() {
-      _onDuty = doc['on_duty'] ?? false;
-      _activeMissionCount = doc['active_mission_count'] ?? 0;
-    });
+  // FIXED: Binago mula 'users' patungong 'rescuers' para mag-match sa iyong Firestore architecture
+  void _subscribeToRescuerState() {
+    FirebaseFirestore.instance
+        .collection('rescuers')
+        .doc(uid)
+        .snapshots()
+        .listen((doc) {
+          if (!mounted || !doc.exists) return;
+          setState(() {
+            _onDuty = doc.data()?['is_on_duty'] ?? false;
+            _activeMissionCount = doc.data()?['active_mission_count'] ?? 0;
+          });
+        });
   }
 
+  // FIXED: Dinagdagan ng null check sa 'pos' parameter bago kuhanin ang lat/lng para iwas crash
   Future<void> _captureLocation() async {
     try {
       final pos = await _locationService.getCurrentPosition();
-      if (!mounted) return;
+      if (!mounted || pos == null) return;
       setState(() {
         _rescuerLat = pos.latitude;
         _rescuerLng = pos.longitude;
@@ -61,11 +70,10 @@ class _MissionQueueScreenState extends State<MissionQueueScreen> {
     await _firestoreService.updateRescuerDuty(uid, value);
   }
 
-  String _priorityLabel(SosRequestModel sos) {
+  // FIXED: Pinalitan ang SosRequestModel patungong SOSRequestModel
+  String _priorityLabel(SOSRequestModel sos) {
     if (sos.createdAt == null) return 'MODERATE';
-    final minutes = DateTime.now()
-        .difference(sos.createdAt!.toDate())
-        .inMinutes;
+    final minutes = DateTime.now().difference(sos.createdAt!).inMinutes;
     if (minutes > 30) return 'CRITICAL';
     if (minutes > 15) return 'HIGH';
     return 'MODERATE';
@@ -82,15 +90,16 @@ class _MissionQueueScreenState extends State<MissionQueueScreen> {
     }
   }
 
-  String _timeElapsed(Timestamp? createdAt) {
+  String _timeElapsed(DateTime? createdAt) {
     if (createdAt == null) return 'Unknown';
-    final diff = DateTime.now().difference(createdAt.toDate());
+    final diff = DateTime.now().difference(createdAt);
     if (diff.inMinutes < 1) return 'Just now';
     if (diff.inHours < 1) return '${diff.inMinutes}m ago';
     return '${diff.inHours}h ${diff.inMinutes % 60}m ago';
   }
 
-  double _distanceKm(SosRequestModel sos) {
+  // FIXED: Pinalitan ang SosRequestModel patungong SOSRequestModel
+  double _distanceKm(SOSRequestModel sos) {
     if (_rescuerLat == null || _rescuerLng == null) return 0;
     return _locationService.calculateDistance(
       _rescuerLat!,
@@ -100,27 +109,53 @@ class _MissionQueueScreenState extends State<MissionQueueScreen> {
     );
   }
 
-  Future<void> _acceptMission(SosRequestModel sos) async {
+  // FIXED: Pinalitan ang references mula 'users' patungong 'rescuers' para sa transactional state changes
+  Future<void> _acceptMission(SOSRequestModel sos) async {
     if (_accepting) return;
     setState(() => _accepting = true);
-    try {
-      final missionRef = await _firestoreService.createMission({
-        'sos_id': sos.id,
-        'rescuer_id': uid,
-        'status': 'accepted',
-        'accepted_at': FieldValue.serverTimestamp(),
-        'persons_count': 1,
-      });
 
-      await Future.wait([
-        _firestoreService.updateSosRequest(sos.id, {
+    final firestore = FirebaseFirestore.instance;
+    final sosRef = firestore.collection('sos_requests').doc(sos.id);
+    final rescuerRef = firestore
+        .collection('rescuers')
+        .doc(uid); // <--- Inayos dito mula 'users'
+    final missionRef = firestore.collection('missions').doc();
+
+    try {
+      await firestore.runTransaction((transaction) async {
+        final sosDoc = await transaction.get(sosRef);
+
+        if (!sosDoc.exists) {
+          throw Exception('SOS Request no longer exists.');
+        }
+
+        final currentStatus = sosDoc.data()?['status'] ?? 'open';
+        if (currentStatus != 'open') {
+          throw Exception(
+            'This emergency has already been taken by another responder.',
+          );
+        }
+
+        // Isabay ang pagsulat sa lahat ng apektadong document parameters
+        transaction.set(missionRef, {
+          'id': missionRef.id,
+          'sos_id': sos.id,
+          'rescuer_id': uid,
+          'status': 'en_route',
+          'created_at': FieldValue.serverTimestamp(),
+          'completed_at': null,
+          'notes': '',
+        });
+
+        transaction.update(sosRef, {
           'status': 'assigned',
           'assigned_rescuer_id': uid,
-        }),
-        _firestoreService.updateRescuer(uid, {
+        });
+
+        transaction.update(rescuerRef, {
           'active_mission_count': FieldValue.increment(1),
-        }),
-      ]);
+        });
+      });
 
       if (!mounted) return;
       Navigator.push(
@@ -133,7 +168,7 @@ class _MissionQueueScreenState extends State<MissionQueueScreen> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Failed to accept: $e'),
+            content: Text(e.toString().replaceAll('Exception:', '').trim()),
             backgroundColor: AppTheme.dangerRed,
           ),
         );
@@ -143,19 +178,27 @@ class _MissionQueueScreenState extends State<MissionQueueScreen> {
     }
   }
 
-  Future<void> _deferMission(SosRequestModel sos) async {
+  // FIXED: Pinalitan ang SosRequestModel patungong SOSRequestModel
+  Future<void> _deferMission(SOSRequestModel sos) async {
     try {
+      // Local state update para mawala agad sa listahan ng rescuer na ito
+      setState(() {
+        _deferredMissionIds.add(sos.id);
+      });
+
       await _firestoreService.createMission({
         'sos_id': sos.id,
         'rescuer_id': uid,
         'status': 'deferred',
         'deferred_at': FieldValue.serverTimestamp(),
-        'persons_count': 0,
       });
+
       if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(const SnackBar(content: Text('Mission deferred.')));
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Mission deferred and hidden from queue.'),
+          ),
+        );
       }
     } catch (e) {
       if (mounted) {
@@ -181,7 +224,7 @@ class _MissionQueueScreenState extends State<MissionQueueScreen> {
       ),
       body: Column(
         children: [
-          // Duty toggle + active count
+          // Duty banner controller UI
           Container(
             color: Colors.white,
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
@@ -239,39 +282,52 @@ class _MissionQueueScreenState extends State<MissionQueueScreen> {
           ),
           const Divider(height: 1),
 
-          // Mission list
+          // StreamBuilder Engine para sa Open SOS Feed
           Expanded(
-            child: StreamBuilder<List<SosRequestModel>>(
-              stream: _firestoreService.openSOSStream(),
-              builder: (context, snapshot) {
-                if (snapshot.connectionState == ConnectionState.waiting) {
-                  return const Center(child: CircularProgressIndicator());
-                }
-                final sosList = snapshot.data ?? [];
-                if (sosList.isEmpty) {
-                  return _buildEmptyState();
-                }
-                return ListView.separated(
-                  padding: const EdgeInsets.all(12),
-                  itemCount: sosList.length,
-                  separatorBuilder: (_, __) => const SizedBox(height: 10),
-                  itemBuilder: (context, index) {
-                    final sos = sosList[index];
-                    return _MissionCard(
-                      sos: sos,
-                      priority: _priorityLabel(sos),
-                      priorityColor: _priorityColor(_priorityLabel(sos)),
-                      timeElapsed: _timeElapsed(sos.createdAt),
-                      distanceKm: _distanceKm(sos),
-                      firestoreService: _firestoreService,
-                      onAccept: () => _acceptMission(sos),
-                      onDefer: () => _deferMission(sos),
-                      accepting: _accepting,
-                    );
-                  },
-                );
-              },
-            ),
+            child: !_onDuty
+                ? _buildOffDutyState()
+                : StreamBuilder<List<SOSRequestModel>>(
+                    // <--- FIXED: SOSRequestModel name alignment
+                    stream: _firestoreService.openSOSStream(),
+                    builder: (context, snapshot) {
+                      if (snapshot.connectionState == ConnectionState.waiting) {
+                        return const Center(child: CircularProgressIndicator());
+                      }
+
+                      final rawList = snapshot.data ?? [];
+
+                      // I-filter out ang mga hiningan ng deferral ng rescuer na ito
+                      final sosList = rawList
+                          .where((sos) => !_deferredMissionIds.contains(sos.id))
+                          .toList();
+
+                      if (sosList.isEmpty) {
+                        return _buildEmptyState();
+                      }
+
+                      return ListView.separated(
+                        padding: const EdgeInsets.all(12),
+                        itemCount: sosList.length,
+                        separatorBuilder: (_, __) => const SizedBox(height: 10),
+                        itemBuilder: (context, index) {
+                          final sos = sosList[index];
+                          final priorityStr = _priorityLabel(sos);
+
+                          return _MissionCard(
+                            sos: sos,
+                            priority: priorityStr,
+                            priorityColor: _priorityColor(priorityStr),
+                            timeElapsed: _timeElapsed(sos.createdAt),
+                            distanceKm: _distanceKm(sos),
+                            firestoreService: _firestoreService,
+                            onAccept: () => _acceptMission(sos),
+                            onDefer: () => _deferMission(sos),
+                            accepting: _accepting,
+                          );
+                        },
+                      );
+                    },
+                  ),
           ),
         ],
       ),
@@ -303,10 +359,35 @@ class _MissionQueueScreenState extends State<MissionQueueScreen> {
       ),
     );
   }
+
+  Widget _buildOffDutyState() {
+    return Center(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(
+            Icons.power_settings_new_rounded,
+            size: 64,
+            color: Colors.grey.shade400,
+          ),
+          const SizedBox(height: 12),
+          const Text(
+            'You are Off Duty',
+            style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            'Toggle "On Duty" above to start receiving emergency cues.',
+            style: TextStyle(color: AppTheme.textSecondary),
+          ),
+        ],
+      ),
+    );
+  }
 }
 
 class _MissionCard extends StatelessWidget {
-  final SosRequestModel sos;
+  final SOSRequestModel sos; // <--- FIXED: SOSRequestModel name alignment
   final String priority;
   final Color priorityColor;
   final String timeElapsed;
@@ -343,7 +424,6 @@ class _MissionCard extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // Header strip
               Container(
                 padding: const EdgeInsets.symmetric(
                   horizontal: 14,
@@ -355,7 +435,9 @@ class _MissionCard extends StatelessWidget {
                     top: Radius.circular(14),
                   ),
                   border: Border(
-                    bottom: BorderSide(color: priorityColor.withValues(alpha: 0.3)),
+                    bottom: BorderSide(
+                      color: priorityColor.withValues(alpha: 0.3),
+                    ),
                   ),
                 ),
                 child: Row(
@@ -395,13 +477,11 @@ class _MissionCard extends StatelessWidget {
                   ],
                 ),
               ),
-
               Padding(
                 padding: const EdgeInsets.all(14),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    // Citizen name + blood type
                     Row(
                       children: [
                         const Icon(
@@ -431,7 +511,9 @@ class _MissionCard extends StatelessWidget {
                               color: AppTheme.dangerRed.withValues(alpha: 0.1),
                               borderRadius: BorderRadius.circular(8),
                               border: Border.all(
-                                color: AppTheme.dangerRed.withValues(alpha: 0.3),
+                                color: AppTheme.dangerRed.withValues(
+                                  alpha: 0.3,
+                                ),
                               ),
                             ),
                             child: Row(
@@ -457,8 +539,6 @@ class _MissionCard extends StatelessWidget {
                       ],
                     ),
                     const SizedBox(height: 8),
-
-                    // Distance
                     Row(
                       children: [
                         const Icon(
@@ -477,18 +557,13 @@ class _MissionCard extends StatelessWidget {
                       ],
                     ),
                     const SizedBox(height: 8),
-
-                    // Description
                     Text(
                       sos.description ?? 'No description provided.',
                       maxLines: 2,
                       overflow: TextOverflow.ellipsis,
                       style: const TextStyle(fontSize: 13),
                     ),
-
                     const SizedBox(height: 14),
-
-                    // Action buttons
                     Row(
                       children: [
                         Expanded(

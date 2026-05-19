@@ -373,7 +373,10 @@ class _LiveIncidentsList extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return StreamBuilder<QuerySnapshot>(
-      stream: FirestoreService.instance.openSOSStream(),
+      stream: FirebaseFirestore.instance
+          .collection('sos_requests')
+          .where('status', isEqualTo: 'open')
+          .snapshots(),
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
           return Column(

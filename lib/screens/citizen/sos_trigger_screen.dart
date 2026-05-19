@@ -93,14 +93,23 @@ class _SosTriggerScreenState extends State<SosTriggerScreen>
 
   Future<void> _initLocation() async {
     try {
-      final pos = await LocationService().getCurrentPosition();
+      final pos = await LocationService.instance.getCurrentPosition();
       if (!mounted) return;
-      setState(() {
-        _lat = pos.latitude;
-        _lng = pos.longitude;
-        _locationReady = true;
-        _locationError = null;
-      });
+
+      // FIX: Nilagyan ng null check para siguradong may maipasang coordinates
+      if (pos != null) {
+        setState(() {
+          _lat = pos.latitude;
+          _lng = pos.longitude;
+          _locationReady = true;
+          _locationError = null;
+        });
+      } else {
+        setState(() {
+          _locationReady = false;
+          _locationError = 'GPS is disabled. Turn it on to proceed.';
+        });
+      }
     } catch (e) {
       if (!mounted) return;
       setState(() {
@@ -130,7 +139,11 @@ class _SosTriggerScreenState extends State<SosTriggerScreen>
     // Tick countdown every second
     _countdownTimer = Timer.periodic(const Duration(seconds: 1), (t) {
       if (!mounted) return;
-      setState(() => _countdownSeconds--);
+      setState(() {
+        if (_countdownSeconds > 1) {
+          _countdownSeconds--;
+        }
+      });
       HapticFeedback.lightImpact();
     });
 
@@ -183,12 +196,13 @@ class _SosTriggerScreenState extends State<SosTriggerScreen>
     }
 
     try {
+      // Sinisigurado na tugma ang field names sa tinatanggap ng RescuerAssignedScreen
       final docRef = await FirebaseFirestore.instance
           .collection('sos_requests')
           .add({
             'citizen_id': uid,
-            'lat': _lat,
-            'lng': _lng,
+            'latitude': _lat, // database model compatible
+            'longitude': _lng, // database model compatible
             'status': 'open',
             'created_at': FieldValue.serverTimestamp(),
             'assigned_rescuer_id': null,
@@ -196,7 +210,7 @@ class _SosTriggerScreenState extends State<SosTriggerScreen>
 
       if (!mounted) return;
 
-      // Replace route — cannot go back to SOS trigger
+      // Replace route — hindi na pwedeng bumalik sa hold trigger screen kapag nasend na
       Navigator.pushReplacement(
         context,
         MaterialPageRoute(
@@ -502,7 +516,9 @@ class _SosButtonWithRing extends StatelessWidget {
                   ? []
                   : [
                       BoxShadow(
-                        color: _dangerRed.withValues(alpha: isHolding ? 0.7 : 0.45),
+                        color: _dangerRed.withValues(
+                          alpha: isHolding ? 0.7 : 0.45,
+                        ),
                         blurRadius: isHolding ? 48 : 28,
                         spreadRadius: isHolding ? 8 : 2,
                       ),
@@ -612,7 +628,10 @@ class _BackgroundGlowPainter extends CustomPainter {
       ..shader = RadialGradient(
         center: Alignment.center,
         radius: 0.9,
-        colors: [_dangerRed.withValues(alpha: 0.18 * intensity), Colors.transparent],
+        colors: [
+          _dangerRed.withValues(alpha: 0.18 * intensity),
+          Colors.transparent,
+        ],
       ).createShader(Rect.fromLTWH(0, 0, size.width, size.height));
 
     canvas.drawRect(Rect.fromLTWH(0, 0, size.width, size.height), paint);

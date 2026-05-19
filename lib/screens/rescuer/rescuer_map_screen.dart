@@ -1,8 +1,6 @@
 import 'dart:async';
-import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
-import 'package:http/http.dart' as http;
 
 import '../../models/sos_request_model.dart';
 import '../../models/evac_center_model.dart';
@@ -11,8 +9,6 @@ import '../../services/location_service.dart';
 import '../../theme/app_theme.dart';
 import '../../widgets/rescuer_bottom_nav.dart';
 import 'mission_queue_screen.dart';
-
-const String _googleApiKey = 'YOUR_API_KEY';
 
 class RescuerMapScreen extends StatefulWidget {
   const RescuerMapScreen({super.key});
@@ -23,7 +19,7 @@ class RescuerMapScreen extends StatefulWidget {
 
 class _RescuerMapScreenState extends State<RescuerMapScreen> {
   final FirestoreService _firestoreService = FirestoreService.instance;
-  final LocationService _locationService = LocationService();
+  final LocationService _locationService = LocationService.instance;
 
   GoogleMapController? _mapController;
   LatLng? _rescuerLatLng;
@@ -32,11 +28,11 @@ class _RescuerMapScreenState extends State<RescuerMapScreen> {
   final Set<Polyline> _polylines = {};
 
   StreamSubscription? _sosSubscription;
-  List<SosRequestModel> _sosList = [];
+  List<SOSRequestModel> _sosList = [];
   List<EvacCenterModel> _evacCenters = [];
 
   // For selected SOS pin
-  SosRequestModel? _selectedSos;
+  SOSRequestModel? _selectedSos;
 
   @override
   void initState() {
@@ -49,7 +45,7 @@ class _RescuerMapScreenState extends State<RescuerMapScreen> {
   Future<void> _initLocation() async {
     try {
       final pos = await _locationService.getCurrentPosition();
-      if (!mounted) return;
+      if (!mounted || pos == null) return;
       setState(() {
         _rescuerLatLng = LatLng(pos.latitude, pos.longitude);
         _rebuildMarkers();
@@ -72,72 +68,85 @@ class _RescuerMapScreenState extends State<RescuerMapScreen> {
 
   Future<void> _loadEvacCenters() async {
     try {
-      final centers = await _firestoreService.getEvacCenters();
+      // Sinasalo ang dynamic data at pinapasa sa factory mapping ng EvacCenterModel natin
+      final List<dynamic> centersData = await _firestoreService
+          .getEvacCenters();
       if (!mounted) return;
       setState(() {
-        _evacCenters = centers;
+        _evacCenters = centersData.map((data) {
+          if (data is Map<String, dynamic>) {
+            return EvacCenterModel.fromMap(data);
+          }
+          return EvacCenterModel.fromFirestore(data);
+        }).toList();
         _rebuildMarkers();
       });
     } catch (_) {}
   }
 
   void _rebuildMarkers() {
-    _markers.clear();
+    setState(() {
+      _markers.clear();
 
-    // Rescuer marker
-    if (_rescuerLatLng != null) {
-      _markers.add(
-        Marker(
-          markerId: const MarkerId('rescuer'),
-          position: _rescuerLatLng!,
-          icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueBlue),
-          infoWindow: const InfoWindow(title: 'You (R)'),
-          zIndex: 2,
-        ),
-      );
-    }
+      // Rescuer marker
+      if (_rescuerLatLng != null) {
+        _markers.add(
+          Marker(
+            markerId: const MarkerId('rescuer'),
+            position: _rescuerLatLng!,
+            icon: BitmapDescriptor.defaultMarkerWithHue(
+              BitmapDescriptor.hueBlue,
+            ),
+            infoWindow: const InfoWindow(title: 'You (R)'),
+            zIndex: 2,
+          ),
+        );
+      }
 
-    // SOS markers
-    for (final sos in _sosList) {
-      _markers.add(
-        Marker(
-          markerId: MarkerId('sos_${sos.id}'),
-          position: LatLng(sos.latitude, sos.longitude),
-          icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueRed),
-          infoWindow: InfoWindow(
-            title: '🆘 SOS',
-            snippet: sos.description ?? '',
+      // SOS markers
+      for (final sos in _sosList) {
+        _markers.add(
+          Marker(
+            markerId: MarkerId('sos_${sos.id}'),
+            position: LatLng(sos.latitude, sos.longitude),
+            icon: BitmapDescriptor.defaultMarkerWithHue(
+              BitmapDescriptor.hueRed,
+            ),
+            infoWindow: InfoWindow(
+              title: '🆘 SOS - ${sos.citizenName}',
+              snippet: sos.description ?? 'No description provided.',
+            ),
+            onTap: () => _onSosTapped(sos),
+            zIndex: 1,
           ),
-          onTap: () => _onSosTapped(sos),
-          zIndex: 1,
-        ),
-      );
-    }
+        );
+      }
 
-    // Evacuation center markers
-    for (final center in _evacCenters) {
-      _markers.add(
-        Marker(
-          markerId: MarkerId('evac_${center.id}'),
-          position: LatLng(center.latitude, center.longitude),
-          icon: BitmapDescriptor.defaultMarkerWithHue(
-            BitmapDescriptor.hueGreen,
+      // Evacuation center markers
+      for (final center in _evacCenters) {
+        _markers.add(
+          Marker(
+            markerId: MarkerId('evac_${center.id}'),
+            position: LatLng(center.latitude, center.longitude),
+            icon: BitmapDescriptor.defaultMarkerWithHue(
+              BitmapDescriptor.hueGreen,
+            ),
+            infoWindow: InfoWindow(
+              title: '🏥 ${center.name}',
+              snippet: 'Evacuation Center',
+            ),
           ),
-          infoWindow: InfoWindow(
-            title: '🏥 ${center.name}',
-            snippet: 'Evacuation Center',
-          ),
-        ),
-      );
-    }
+        );
+      }
+    });
   }
 
-  void _onSosTapped(SosRequestModel sos) {
+  void _onSosTapped(SOSRequestModel sos) {
     setState(() => _selectedSos = sos);
     _showSosBottomSheet(sos);
   }
 
-  void _showSosBottomSheet(SosRequestModel sos) {
+  void _showSosBottomSheet(SOSRequestModel sos) {
     showModalBottomSheet(
       context: context,
       shape: const RoundedRectangleBorder(
@@ -157,11 +166,9 @@ class _RescuerMapScreenState extends State<RescuerMapScreen> {
     );
   }
 
-  String _priorityLabel(SosRequestModel sos) {
+  String _priorityLabel(SOSRequestModel sos) {
     if (sos.createdAt == null) return 'MODERATE';
-    final minutes = DateTime.now()
-        .difference(sos.createdAt!.toDate())
-        .inMinutes;
+    final minutes = DateTime.now().difference(sos.createdAt!).inMinutes;
     if (minutes > 30) return 'CRITICAL';
     if (minutes > 15) return 'HIGH';
     return 'MODERATE';
@@ -213,7 +220,7 @@ class _RescuerMapScreenState extends State<RescuerMapScreen> {
             left: 0,
             right: 0,
             child: AppBar(
-              backgroundColor: AppTheme.primaryBlue.withValues(alpha: 0.92),
+              backgroundColor: AppTheme.primaryBlue.withOpacity(0.92),
               foregroundColor: Colors.white,
               title: const Text(
                 'Rescue Map',
@@ -300,7 +307,7 @@ class _RescuerMapScreenState extends State<RescuerMapScreen> {
             },
           ),
 
-          // FAB
+          // FAB Queue Button
           Positioned(
             bottom: 180,
             right: 16,
@@ -327,9 +334,9 @@ class _RescuerMapScreenState extends State<RescuerMapScreen> {
         Container(
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
           decoration: BoxDecoration(
-            color: color.withValues(alpha: 0.12),
+            color: color.withOpacity(0.12),
             borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: color.withValues(alpha: 0.4)),
+            border: Border.all(color: color.withOpacity(0.4)),
           ),
           child: Text(
             '$count',
@@ -355,7 +362,7 @@ class _RescuerMapScreenState extends State<RescuerMapScreen> {
 }
 
 class _SosDetailSheet extends StatelessWidget {
-  final SosRequestModel sos;
+  final SOSRequestModel sos;
   final FirestoreService firestoreService;
   final VoidCallback onAccept;
 
@@ -381,9 +388,12 @@ class _SosDetailSheet extends StatelessWidget {
                 size: 28,
               ),
               const SizedBox(width: 8),
-              const Text(
-                'SOS Request',
-                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
+              Text(
+                'SOS from ${sos.citizenName}',
+                style: const TextStyle(
+                  fontWeight: FontWeight.bold,
+                  fontSize: 18,
+                ),
               ),
             ],
           ),
@@ -393,9 +403,32 @@ class _SosDetailSheet extends StatelessWidget {
             style: const TextStyle(fontSize: 14),
           ),
           const SizedBox(height: 8),
+          Row(
+            children: [
+              const Text(
+                '👥 Population: ',
+                style: TextStyle(fontWeight: FontWeight.w600, fontSize: 13),
+              ),
+              Text(
+                '${sos.personsCount} person(s)',
+                style: const TextStyle(fontSize: 13),
+              ),
+            ],
+          ),
+          const SizedBox(height: 4),
+          Row(
+            children: [
+              const Text(
+                '🩸 Blood Type Required: ',
+                style: TextStyle(fontWeight: FontWeight.w600, fontSize: 13),
+              ),
+              Text(sos.bloodType, style: const TextStyle(fontSize: 13)),
+            ],
+          ),
+          const SizedBox(height: 8),
           Text(
             '📍 ${sos.latitude.toStringAsFixed(5)}, ${sos.longitude.toStringAsFixed(5)}',
-            style: TextStyle(color: AppTheme.textSecondary, fontSize: 12),
+            style: TextStyle(color: Colors.grey.shade600, fontSize: 12),
           ),
           const SizedBox(height: 20),
           SizedBox(

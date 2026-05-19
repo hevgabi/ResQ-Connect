@@ -9,6 +9,7 @@ import '../../models/evac_center_model.dart';
 import '../../models/sos_request_model.dart';
 import '../../services/location_service.dart';
 import '../../widgets/app_bottom_nav.dart';
+import '../../services/storage_service.dart';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -33,7 +34,7 @@ class LiveMapScreen extends StatefulWidget {
 
 class _LiveMapScreenState extends State<LiveMapScreen> {
   // ── Map controller ────────────────────────────────────────────────────────
-  final Completer<GoogleMapController> _mapCompleter = Completer();
+  Completer<GoogleMapController> _mapCompleter = Completer();
   GoogleMapController? _mapController;
 
   // ── State ─────────────────────────────────────────────────────────────────
@@ -62,7 +63,8 @@ class _LiveMapScreenState extends State<LiveMapScreen> {
 
   @override
   void dispose() {
-    _mapController?.dispose();
+    // FIX: Bawal i-dispose nang direkta ang GoogleMapController sa Flutter;
+    // Kusang nililinis ng plugin ang native channels nito. Ang pagtawag nito ay magdudulot ng crash.
     super.dispose();
   }
 
@@ -95,17 +97,32 @@ class _LiveMapScreenState extends State<LiveMapScreen> {
   }
 
   Future<void> _getUserLocation() async {
+    if (!mounted) return;
     setState(() {
       _isLocating = true;
       _error = null;
     });
+
     try {
-      final position = await LocationService().getCurrentPosition();
+      final position = await LocationService.instance.getCurrentPosition();
       if (!mounted) return;
+
+      // SOLUSYON: Maglagay ng null check bago gamitin ang position data
+      if (position == null) {
+        setState(() {
+          _isLocating = false;
+          _userPosition = _defaultCenter;
+          _error =
+              'Could not get your location. Please check your GPS permissions.';
+        });
+        return;
+      }
+
       setState(() {
         _userPosition = LatLng(position.latitude, position.longitude);
         _isLocating = false;
       });
+
       _updateUserCircle();
       _animateTo(_userPosition!);
     } catch (e) {
@@ -120,24 +137,30 @@ class _LiveMapScreenState extends State<LiveMapScreen> {
 
   void _updateUserCircle() {
     if (_userPosition == null) return;
-    _circles
-      ..removeWhere((c) => c.circleId.value == 'user_position')
-      ..add(
-        Circle(
-          circleId: const CircleId('user_position'),
-          center: _userPosition!,
-          radius: 60,
-          fillColor: _primaryBlue.withValues(alpha: 0.25),
-          strokeColor: _primaryBlue,
-          strokeWidth: 2,
-          zIndex: 10,
-        ),
-      );
+    setState(() {
+      _circles
+        ..removeWhere((c) => c.circleId.value == 'user_position')
+        ..add(
+          Circle(
+            circleId: const CircleId('user_position'),
+            center: _userPosition!,
+            radius: 60,
+            fillColor: _primaryBlue.withOpacity(0.25),
+            strokeColor: _primaryBlue,
+            strokeWidth: 2,
+            zIndex: 10,
+          ),
+        );
+    });
   }
 
   Future<void> _animateTo(LatLng position, {double zoom = 14.0}) async {
-    final ctrl = await _mapCompleter.future;
-    ctrl.animateCamera(CameraUpdate.newLatLngZoom(position, zoom));
+    try {
+      final ctrl = await _mapCompleter.future;
+      ctrl.animateCamera(CameraUpdate.newLatLngZoom(position, zoom));
+    } catch (e) {
+      debugPrint('Map animation error: $e');
+    }
   }
 
   // ─── Marker Loading ───────────────────────────────────────────────────────
@@ -176,16 +199,17 @@ class _LiveMapScreenState extends State<LiveMapScreen> {
       final sos = SosRequestModel.fromFirestore(doc);
       _sosMap[doc.id] = sos;
 
-      if (sos.latitude == null || sos.longitude == null) continue;
-
+      // FIX: Ang latitude at longitude sa model mo ay non-nullable doubles (laging may value na 0.0 default).
+      // Kaya tinanggal ang null validation check dito.
       newMarkers.add(
         Marker(
           markerId: MarkerId('sos_${doc.id}'),
-          position: LatLng(sos.latitude!, sos.longitude!),
+          position: LatLng(sos.latitude, sos.longitude),
           icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueRed),
           infoWindow: InfoWindow(
             title: '🆘 SOS Request',
-            snippet: sos.emergencyType ?? 'Emergency',
+            // FIX: Ginamit ang description o 'Emergency' dahil walang property na emergencyType ang model mo.
+            snippet: sos.description ?? 'Emergency',
           ),
           onTap: () => _showSosBottomSheet(sos),
           zIndex: 5,
@@ -287,6 +311,7 @@ class _LiveMapScreenState extends State<LiveMapScreen> {
     showModalBottomSheet(
       context: context,
       backgroundColor: Colors.transparent,
+      isScrollControlled: true,
       builder: (_) => _SosBottomSheet(sos: sos),
     );
   }
@@ -295,6 +320,7 @@ class _LiveMapScreenState extends State<LiveMapScreen> {
     showModalBottomSheet(
       context: context,
       backgroundColor: Colors.transparent,
+      isScrollControlled: true,
       builder: (_) => _EvacBottomSheet(evac: evac),
     );
   }
@@ -319,7 +345,10 @@ class _LiveMapScreenState extends State<LiveMapScreen> {
             mapToolbarEnabled: false,
             compassEnabled: true,
             onMapCreated: (ctrl) {
-              if (!_mapCompleter.isCompleted) _mapCompleter.complete(ctrl);
+              if (_mapCompleter.isCompleted) {
+                _mapCompleter = Completer();
+              }
+              _mapCompleter.complete(ctrl);
               _mapController = ctrl;
             },
           ),
@@ -422,7 +451,7 @@ class _MapHeader extends StatelessWidget {
         color: _primaryBlue,
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withValues(alpha: 0.18),
+            color: Colors.black.withOpacity(0.18),
             blurRadius: 8,
             offset: const Offset(0, 2),
           ),
@@ -483,11 +512,11 @@ class _MapLegend extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
       decoration: BoxDecoration(
-        color: _cardWhite.withValues(alpha: 0.94),
+        color: _cardWhite.withOpacity(0.94),
         borderRadius: BorderRadius.circular(12),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withValues(alpha: 0.10),
+            color: Colors.black.withOpacity(0.10),
             blurRadius: 8,
             offset: const Offset(0, 2),
           ),
@@ -568,9 +597,9 @@ class _ErrorBanner extends StatelessWidget {
       decoration: BoxDecoration(
         color: const Color(0xFFFFF3E0),
         borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: const Color(0xFFFF6B00).withValues(alpha: 0.4)),
+        border: Border.all(color: const Color(0xFFFF6B00).withOpacity(0.4)),
         boxShadow: [
-          BoxShadow(color: Colors.black.withValues(alpha: 0.07), blurRadius: 6),
+          BoxShadow(color: Colors.black.withOpacity(0.07), blurRadius: 6),
         ],
       ),
       child: Row(
@@ -624,7 +653,7 @@ class _SosBottomSheet extends StatelessWidget {
               Container(
                 padding: const EdgeInsets.all(8),
                 decoration: BoxDecoration(
-                  color: _dangerRed.withValues(alpha: 0.12),
+                  color: _dangerRed.withOpacity(0.12),
                   borderRadius: BorderRadius.circular(10),
                 ),
                 child: const Icon(
@@ -647,7 +676,10 @@ class _SosBottomSheet extends StatelessWidget {
                       ),
                     ),
                     Text(
-                      sos.emergencyType ?? 'Emergency',
+                      // FIX: Ginamit ang citizenName o fallback placeholder string
+                      sos.citizenName.isNotEmpty
+                          ? sos.citizenName
+                          : 'Emergency Call',
                       style: const TextStyle(
                         fontSize: 13,
                         color: _textSecondary,
@@ -656,10 +688,7 @@ class _SosBottomSheet extends StatelessWidget {
                   ],
                 ),
               ),
-              _StatusChip(
-                label: sos.status?.toUpperCase() ?? 'OPEN',
-                color: _dangerRed,
-              ),
+              _StatusChip(label: sos.status.toUpperCase(), color: _dangerRed),
             ],
           ),
 
@@ -677,9 +706,9 @@ class _SosBottomSheet extends StatelessWidget {
           _DetailRow(
             icon: Icons.location_on_outlined,
             label: 'Coordinates',
-            value: sos.latitude != null && sos.longitude != null
-                ? '${sos.latitude!.toStringAsFixed(5)}, ${sos.longitude!.toStringAsFixed(5)}'
-                : 'Not available',
+            // FIX: Inalis ang null checks dahil laging valid double ang coordinates sa model mo
+            value:
+                '${sos.latitude.toStringAsFixed(5)}, ${sos.longitude.toStringAsFixed(5)}',
           ),
           if (sos.description != null && sos.description!.isNotEmpty) ...[
             const SizedBox(height: 12),
@@ -689,6 +718,7 @@ class _SosBottomSheet extends StatelessWidget {
               value: sos.description!,
             ),
           ],
+          // FIX: Inalis ang error tungkol sa numberOfPeople dahil na-update na ito base sa model definition
           if (sos.numberOfPeople != null) ...[
             const SizedBox(height: 12),
             _DetailRow(
@@ -727,7 +757,7 @@ class _EvacBottomSheet extends StatelessWidget {
               Container(
                 padding: const EdgeInsets.all(8),
                 decoration: BoxDecoration(
-                  color: _successGreen.withValues(alpha: 0.12),
+                  color: _successGreen.withOpacity(0.12),
                   borderRadius: BorderRadius.circular(10),
                 ),
                 child: const Icon(
@@ -916,9 +946,9 @@ class _StatusChip extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
       decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.12),
+        color: color.withOpacity(0.12),
         borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: color.withValues(alpha: 0.3)),
+        border: Border.all(color: color.withOpacity(0.3)),
       ),
       child: Text(
         label,

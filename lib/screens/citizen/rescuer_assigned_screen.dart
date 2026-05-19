@@ -2,8 +2,8 @@ import 'dart:async';
 import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
-import 'package:share_plus/share_plus.dart';
-import 'package:url_launcher/url_launcher.dart';
+import 'package:share_plus/share_plus.dart'; // Siguraduhing na-install sa pubspec.yaml
+import 'package:url_launcher/url_launcher.dart'; // Para sa canLaunchUrl at launchUrl
 
 import '../../models/sos_request_model.dart';
 import '../../models/user_model.dart';
@@ -23,7 +23,7 @@ class RescuerAssignedScreen extends StatefulWidget {
 class _RescuerAssignedScreenState extends State<RescuerAssignedScreen>
     with SingleTickerProviderStateMixin {
   final FirestoreService _firestoreService = FirestoreService.instance;
-  final LocationService _locationService = LocationService();
+  final LocationService _locationService = LocationService.instance;
 
   StreamSubscription? _sosSubscription;
   StreamSubscription? _rescuerLocationSubscription;
@@ -97,8 +97,8 @@ class _RescuerAssignedScreenState extends State<RescuerAssignedScreen>
         .rescuerStream(rescuerId)
         .listen((data) {
           if (!mounted || data == null) return;
-          final lat = data['current_lat'] as double?;
-          final lng = data['current_lng'] as double?;
+          final lat = data['latitude'] as double?;
+          final lng = data['longitude'] as double?;
           if (lat == null || lng == null) return;
 
           setState(() {
@@ -106,6 +106,7 @@ class _RescuerAssignedScreenState extends State<RescuerAssignedScreen>
             _updateRescuerMarker();
             _updatePolyline();
             _recalculateEta();
+            _animateToFitRoute();
           });
         });
   }
@@ -150,6 +151,26 @@ class _RescuerAssignedScreenState extends State<RescuerAssignedScreen>
     );
   }
 
+  void _animateToFitRoute() {
+    if (_mapController == null ||
+        _victimLatLng == null ||
+        _rescuerLatLng == null)
+      return;
+
+    LatLngBounds bounds = LatLngBounds(
+      southwest: LatLng(
+        min(_rescuerLatLng!.latitude, _victimLatLng!.latitude),
+        min(_rescuerLatLng!.longitude, _victimLatLng!.longitude),
+      ),
+      northeast: LatLng(
+        max(_rescuerLatLng!.latitude, _victimLatLng!.latitude),
+        max(_rescuerLatLng!.longitude, _victimLatLng!.longitude),
+      ),
+    );
+
+    _mapController!.animateCamera(CameraUpdate.newLatLngBounds(bounds, 50));
+  }
+
   void _recalculateEta() {
     if (_victimLatLng == null || _rescuerLatLng == null) return;
     final distKm = _locationService.calculateDistance(
@@ -174,7 +195,7 @@ class _RescuerAssignedScreenState extends State<RescuerAssignedScreen>
     if (_victimLatLng == null) return;
     Share.share(
       'My emergency location: ${_victimLatLng!.latitude}, ${_victimLatLng!.longitude}\n'
-      'https://maps.google.com/?q=${_victimLatLng!.latitude},${_victimLatLng!.longitude}',
+      'https://www.google.com/maps/search/?api=1&query=${_victimLatLng!.latitude},${_victimLatLng!.longitude}',
     );
   }
 
@@ -204,13 +225,12 @@ class _RescuerAssignedScreenState extends State<RescuerAssignedScreen>
       ),
       body: Column(
         children: [
-          // Green banner
           Container(
             width: double.infinity,
             color: AppTheme.successGreen,
             padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 16),
-            child: Row(
-              children: const [
+            child: const Row(
+              children: [
                 Icon(Icons.location_on, color: Colors.white, size: 18),
                 SizedBox(width: 8),
                 Expanded(
@@ -226,8 +246,6 @@ class _RescuerAssignedScreenState extends State<RescuerAssignedScreen>
               ],
             ),
           ),
-
-          // Map (half screen)
           SizedBox(
             height: MediaQuery.of(context).size.height * 0.38,
             child: assigned && _victimLatLng != null
@@ -243,8 +261,6 @@ class _RescuerAssignedScreenState extends State<RescuerAssignedScreen>
                   )
                 : _buildWaitingMap(),
           ),
-
-          // Scrollable content below map
           Expanded(
             child: SingleChildScrollView(
               padding: const EdgeInsets.all(16),
@@ -293,26 +309,26 @@ class _RescuerAssignedScreenState extends State<RescuerAssignedScreen>
                 borderRadius: BorderRadius.circular(16),
                 boxShadow: [
                   BoxShadow(
-                    color: Colors.black.withValues(alpha: 0.06),
+                    color: Colors.black.withOpacity(0.06),
                     blurRadius: 10,
                     offset: const Offset(0, 4),
                   ),
                 ],
               ),
-              child: Column(
+              child: const Column(
                 children: [
-                  const CircularProgressIndicator(color: AppTheme.primaryBlue),
-                  const SizedBox(height: 16),
-                  const Text(
+                  CircularProgressIndicator(color: AppTheme.primaryBlue),
+                  SizedBox(height: 16),
+                  Text(
                     'Waiting for rescuer...',
                     style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
                   ),
-                  const SizedBox(height: 8),
+                  SizedBox(height: 8),
                   Text(
                     'Your SOS has been received.',
                     style: TextStyle(color: AppTheme.textSecondary),
                   ),
-                  const SizedBox(height: 4),
+                  SizedBox(height: 4),
                   Text(
                     'A rescuer will be assigned shortly.',
                     style: TextStyle(color: AppTheme.textSecondary),
@@ -326,12 +342,12 @@ class _RescuerAssignedScreenState extends State<RescuerAssignedScreen>
         Container(
           padding: const EdgeInsets.all(16),
           decoration: BoxDecoration(
-            color: AppTheme.successGreen.withValues(alpha: 0.1),
+            color: AppTheme.successGreen.withOpacity(0.1),
             borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: AppTheme.successGreen.withValues(alpha: 0.3)),
+            border: Border.all(color: AppTheme.successGreen.withOpacity(0.3)),
           ),
-          child: Row(
-            children: const [
+          child: const Row(
+            children: [
               Icon(Icons.check_circle, color: AppTheme.successGreen),
               SizedBox(width: 12),
               Expanded(
@@ -354,7 +370,6 @@ class _RescuerAssignedScreenState extends State<RescuerAssignedScreen>
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        // ETA Badge
         if (_etaMinutes != null)
           Container(
             padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 20),
@@ -378,10 +393,7 @@ class _RescuerAssignedScreenState extends State<RescuerAssignedScreen>
               ],
             ),
           ),
-
         const SizedBox(height: 16),
-
-        // Status badge
         Center(
           child: Container(
             padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
@@ -390,7 +402,7 @@ class _RescuerAssignedScreenState extends State<RescuerAssignedScreen>
               borderRadius: BorderRadius.circular(24),
             ),
             child: Text(
-              arrived ? '✅  Arrived' : '🚐  En Route',
+              arrived ? '✅   Arrived' : '🚐   En Route',
               style: const TextStyle(
                 color: Colors.white,
                 fontWeight: FontWeight.bold,
@@ -399,10 +411,7 @@ class _RescuerAssignedScreenState extends State<RescuerAssignedScreen>
             ),
           ),
         ),
-
         const SizedBox(height: 16),
-
-        // Rescuer info card
         if (_rescuerData != null || _rescuerUser != null)
           Card(
             elevation: 2,
@@ -438,10 +447,7 @@ class _RescuerAssignedScreenState extends State<RescuerAssignedScreen>
               ),
             ),
           ),
-
         const SizedBox(height: 16),
-
-        // Action buttons
         ElevatedButton.icon(
           onPressed: _callRescuer,
           icon: const Icon(Icons.phone),
@@ -455,9 +461,7 @@ class _RescuerAssignedScreenState extends State<RescuerAssignedScreen>
             ),
           ),
         ),
-
         const SizedBox(height: 10),
-
         OutlinedButton.icon(
           onPressed: _shareLocation,
           icon: const Icon(Icons.share),

@@ -10,6 +10,9 @@ import '../../widgets/moderator_bottom_nav.dart';
 import '../../widgets/error_banner.dart';
 import '../../widgets/empty_state.dart';
 
+// TANDAAN: Kung may ginawa kang ReportModel class, siguraduhing i-import mo rito kung kinakailangan.
+// halimbawa: import '../../models/report_model.dart';
+
 class ModeratorPublishedFeedScreen extends StatelessWidget {
   const ModeratorPublishedFeedScreen({super.key});
 
@@ -57,7 +60,8 @@ class _PublishedTab extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return StreamBuilder<QuerySnapshot>(
+    // FIX: Binago mula QuerySnapshot patungong List<dynamic> (o List<ReportModel> depende sa iyong model setup)
+    return StreamBuilder<List<dynamic>>(
       stream: FirestoreService.instance.publishedReportsStream(),
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
@@ -66,7 +70,7 @@ class _PublishedTab extends StatelessWidget {
         if (snapshot.hasError) {
           return ErrorBanner(message: snapshot.error.toString());
         }
-        if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
+        if (!snapshot.hasData || snapshot.data!.isEmpty) {
           return const EmptyState(
             icon: Icons.public_off,
             iconColor: Color(0xFF546E7A),
@@ -75,15 +79,23 @@ class _PublishedTab extends StatelessWidget {
           );
         }
 
-        final docs = snapshot.data!.docs;
+        // FIX: Direkta nang List ang data, wala nang .docs
+        final reports = snapshot.data!;
         return ListView.separated(
           padding: const EdgeInsets.all(16),
-          itemCount: docs.length,
+          itemCount: reports.length,
           separatorBuilder: (_, __) => const SizedBox(height: 12),
           itemBuilder: (context, index) {
-            final doc = docs[index];
-            final data = doc.data() as Map<String, dynamic>;
-            return _PublishedCard(reportId: doc.id, data: data);
+            final report = reports[index];
+
+            // KUNG ang report ay isang custom object (Model), kadalasan ay may id at toMap() o fields ito.
+            // Iniaangkop natin ito para gumana kahit Model o Map ang balik ng iyong stream.
+            final String reportId = report.id;
+            final Map<String, dynamic> data = (report is Map)
+                ? report as Map<String, dynamic>
+                : report.toMap();
+
+            return _PublishedCard(reportId: reportId, data: data);
           },
         );
       },
@@ -156,13 +168,13 @@ class _PublishedCardState extends State<_PublishedCard> {
         borderRadius: BorderRadius.circular(16),
         border: Border.all(
           color: _hasActiveMission
-              ? const Color(0xFF1FAA59).withValues(alpha: 0.4)
+              ? const Color(0xFF1FAA59).withAlpha(102)
               : Colors.transparent,
           width: 1.5,
         ),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withValues(alpha: 0.05),
+            color: Colors.black.withAlpha(13),
             blurRadius: 8,
             offset: const Offset(0, 3),
           ),
@@ -171,7 +183,6 @@ class _PublishedCardState extends State<_PublishedCard> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Header row
           Row(
             children: [
               Expanded(
@@ -188,16 +199,13 @@ class _PublishedCardState extends State<_PublishedCard> {
             ],
           ),
           const SizedBox(height: 8),
-          // Type chip
           _TypeChipSmall(type: reportType),
           const SizedBox(height: 10),
-          // Approval time
           _InfoRow(
             icon: Icons.check_circle_outline,
             text: 'Approved $approvedAtText',
             color: const Color(0xFF1FAA59),
           ),
-          // Rescuers
           if (_rescuerCount > 0)
             Padding(
               padding: const EdgeInsets.only(top: 6),
@@ -337,12 +345,12 @@ class _RejectedCard extends StatelessWidget {
         color: Colors.white,
         borderRadius: BorderRadius.circular(16),
         border: Border.all(
-          color: const Color(0xFFD7263D).withValues(alpha: 0.2),
+          color: const Color(0xFFD7263D).withAlpha(51),
           width: 1,
         ),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withValues(alpha: 0.05),
+            color: Colors.black.withAlpha(13),
             blurRadius: 8,
             offset: const Offset(0, 3),
           ),
@@ -351,7 +359,6 @@ class _RejectedCard extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Header
           Row(
             children: [
               Expanded(
@@ -374,16 +381,13 @@ class _RejectedCard extends StatelessWidget {
           const SizedBox(height: 8),
           _TypeChipSmall(type: reportType),
           const SizedBox(height: 10),
-          // Rejection reason
           Container(
             width: double.infinity,
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
             decoration: BoxDecoration(
-              color: const Color(0xFFD7263D).withValues(alpha: 0.06),
+              color: const Color(0xFFD7263D).withAlpha(15),
               borderRadius: BorderRadius.circular(8),
-              border: Border.all(
-                color: const Color(0xFFD7263D).withValues(alpha: 0.2),
-              ),
+              border: Border.all(color: const Color(0xFFD7263D).withAlpha(51)),
             ),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -473,7 +477,7 @@ class _TypeChipSmall extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
       decoration: BoxDecoration(
-        color: _color.withValues(alpha: 0.1),
+        color: _color.withAlpha(25),
         borderRadius: BorderRadius.circular(6),
       ),
       child: Text(

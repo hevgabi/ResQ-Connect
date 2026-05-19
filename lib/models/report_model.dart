@@ -7,6 +7,7 @@ class ReportModel {
   final String title;
   final String body;
   final String category; // flood | fire | earthquake | landslide | other
+  final String? type; // optional alias / legacy field for category
   final String status; // pending | published | rejected
   final double latitude;
   final double longitude;
@@ -25,6 +26,7 @@ class ReportModel {
     required this.title,
     required this.body,
     required this.category,
+    this.type,
     required this.status,
     required this.latitude,
     required this.longitude,
@@ -46,6 +48,7 @@ class ReportModel {
       title: data['title'] ?? '',
       body: data['body'] ?? '',
       category: data['category'] ?? 'other',
+      type: data['type'],
       status: data['status'] ?? 'pending',
       latitude: (data['latitude'] as num?)?.toDouble() ?? 0.0,
       longitude: (data['longitude'] as num?)?.toDouble() ?? 0.0,

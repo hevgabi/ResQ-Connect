@@ -394,7 +394,7 @@ class _CitizenHomeScreenState extends State<CitizenHomeScreen> {
             child: ElevatedButton.icon(
               onPressed: () => Navigator.push(
                 context,
-                MaterialPageRoute(builder: (_) => const SOSTriggerScreen()),
+                MaterialPageRoute(builder: (_) => const SosTriggerScreen()),
               ),
               icon: const Icon(Icons.sos_rounded, size: 22),
               label: const Text(
@@ -445,7 +445,7 @@ class _CitizenHomeScreenState extends State<CitizenHomeScreen> {
 
   // ── Alert Banners ─────────────────────────────────────────────────────────
   Widget _buildAlertBanners() {
-    return StreamBuilder<QuerySnapshot>(
+    return StreamBuilder<List<AlertModel>>(
       stream: FirestoreService.instance.alertsStream(),
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
@@ -455,16 +455,14 @@ class _CitizenHomeScreenState extends State<CitizenHomeScreen> {
           return const SizedBox.shrink();
         }
 
-        final docs = snapshot.data!.docs
-            .where((d) => !_dismissedAlerts.contains(d.id))
+        final alerts = snapshot.data!
+            .where((a) => !_dismissedAlerts.contains(a.id))
             .toList();
 
-        if (docs.isEmpty) return const SizedBox.shrink();
+        if (alerts.isEmpty) return const SizedBox.shrink();
 
         return Column(
-          children: docs.map((doc) {
-            final data = doc.data() as Map<String, dynamic>;
-            final alert = AlertModel.fromMap(data, doc.id);
+          children: alerts.map((alert) {
             return _buildSingleAlertBanner(alert);
           }).toList(),
         );
@@ -787,7 +785,7 @@ class _CitizenHomeScreenState extends State<CitizenHomeScreen> {
 
   // ── Community Feed ────────────────────────────────────────────────────────
   Widget _buildCommunityFeed() {
-    return StreamBuilder<QuerySnapshot>(
+    return StreamBuilder<List<Map<String, dynamic>>>(
       stream: FirestoreService.instance.communityFeedStream(),
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
@@ -804,7 +802,7 @@ class _CitizenHomeScreenState extends State<CitizenHomeScreen> {
         if (snapshot.hasError) {
           return ErrorBanner(message: snapshot.error.toString());
         }
-        if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
+        if (!snapshot.hasData || snapshot.data!.isEmpty) {
           return const EmptyState(
             icon: Icons.feed_outlined,
             title: 'No community posts yet',
@@ -812,13 +810,10 @@ class _CitizenHomeScreenState extends State<CitizenHomeScreen> {
           );
         }
 
-        final docs = snapshot.data!.docs;
+        final items = snapshot.data!;
         return Column(
-          children: docs
-              .map(
-                (doc) =>
-                    _buildFeedCard(doc.data() as Map<String, dynamic>, doc.id),
-              )
+          children: items
+              .map((item) => _buildFeedCard(item, item['id'] as String))
               .toList(),
         );
       },

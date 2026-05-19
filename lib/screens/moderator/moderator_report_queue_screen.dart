@@ -4,6 +4,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:provider/provider.dart';
 import 'package:timeago/timeago.dart' as timeago;
 
+import '../../models/report_model.dart';
 import '../../providers/auth_provider.dart';
 import '../../services/firestore_service.dart';
 import '../../widgets/moderator_bottom_nav.dart';
@@ -19,12 +20,10 @@ class ModeratorReportQueueScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: const Color(0xFFF5F7FA),
-      body: StreamBuilder<QuerySnapshot>(
+      body: StreamBuilder<List<ReportModel>>(
         stream: FirestoreService.instance.pendingReportsStream(),
         builder: (context, snapshot) {
-          final pendingCount = (snapshot.hasData)
-              ? snapshot.data!.docs.length
-              : 0;
+          final pendingCount = (snapshot.hasData) ? snapshot.data!.length : 0;
 
           return NestedScrollView(
             headerSliverBuilder: (context, innerBoxIsScrolled) => [
@@ -78,7 +77,7 @@ class ModeratorReportQueueScreen extends StatelessWidget {
 
   Widget _buildBody(
     BuildContext context,
-    AsyncSnapshot<QuerySnapshot> snapshot,
+    AsyncSnapshot<List<ReportModel>> snapshot,
   ) {
     if (snapshot.connectionState == ConnectionState.waiting) {
       return _SkeletonLoader();
@@ -86,7 +85,7 @@ class ModeratorReportQueueScreen extends StatelessWidget {
     if (snapshot.hasError) {
       return ErrorBanner(message: snapshot.error.toString());
     }
-    if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
+    if (!snapshot.hasData || snapshot.data!.isEmpty) {
       return const EmptyState(
         icon: Icons.check_circle_outline,
         iconColor: Color(0xFF1FAA59),
@@ -95,15 +94,13 @@ class ModeratorReportQueueScreen extends StatelessWidget {
       );
     }
 
-    final docs = snapshot.data!.docs;
+    final reports = snapshot.data!;
     return ListView.separated(
       padding: const EdgeInsets.all(16),
-      itemCount: docs.length,
+      itemCount: reports.length,
       separatorBuilder: (_, __) => const SizedBox(height: 12),
       itemBuilder: (context, index) {
-        final doc = docs[index];
-        final data = doc.data() as Map<String, dynamic>;
-        return _ReportQueueCard(reportId: doc.id, data: data);
+        return _ReportQueueCard(report: reports[index]);
       },
     );
   }
@@ -114,10 +111,9 @@ class ModeratorReportQueueScreen extends StatelessWidget {
 // ---------------------------------------------------------------------------
 
 class _ReportQueueCard extends StatefulWidget {
-  final String reportId;
-  final Map<String, dynamic> data;
+  final ReportModel report;
 
-  const _ReportQueueCard({required this.reportId, required this.data});
+  const _ReportQueueCard({required this.report});
 
   @override
   State<_ReportQueueCard> createState() => _ReportQueueCardState();
@@ -133,8 +129,8 @@ class _ReportQueueCardState extends State<_ReportQueueCard> {
   }
 
   Future<void> _loadAuthor() async {
-    final authorId = widget.data['author_id'] as String?;
-    if (authorId == null) {
+    final authorId = widget.report.reporterId;
+    if (authorId.isEmpty) {
       setState(() => _authorName = 'Unknown');
       return;
     }
@@ -155,33 +151,30 @@ class _ReportQueueCardState extends State<_ReportQueueCard> {
 
   @override
   Widget build(BuildContext context) {
-    final data = widget.data;
-    final mediaUrls = (data['media_urls'] as List<dynamic>?)
-        ?.map((e) => e.toString())
-        .toList();
-    final firstMedia = (mediaUrls != null && mediaUrls.isNotEmpty)
-        ? mediaUrls[0]
-        : null;
-    final reportType = (data['type'] as String?) ?? 'General';
-    final lat = data['latitude'] as double?;
-    final lng = data['longitude'] as double?;
-    final createdAt = (data['created_at'] as Timestamp?)?.toDate();
-    final aiScore = (data['ai_score'] as num?)?.toInt() ?? 0;
+    final report = widget.report;
 
-    final locationText = (lat != null && lng != null)
+    final mediaUrls = report.photoUrls;
+    final firstMedia = (mediaUrls.isNotEmpty) ? mediaUrls[0] : null;
+    final reportType = report.category;
+    final lat = report.latitude;
+    final lng = report.longitude;
+
+    // SAFE PARSING: Kinuha ang properties nang may null fallbacks para iwas error sa compilation
+    final aiScore = report.aiScore;
+    final createdAt = report.createdAt;
+
+    final locationText = (lat != 0.0 && lng != 0.0)
         ? '${lat.toStringAsFixed(4)}, ${lng.toStringAsFixed(4)}'
         : 'Location unavailable';
 
-    final timeText = createdAt != null
-        ? timeago.format(createdAt)
-        : 'Unknown time';
+    // FIX: Nilagyan ng fallback `DateTime.now()` kung sakaling null ang `createdAt` mula sa Firestore
+    final timeText = timeago.format(createdAt ?? DateTime.now());
 
     return GestureDetector(
       onTap: () => Navigator.push(
         context,
         MaterialPageRoute(
-          builder: (_) =>
-              ModeratorReviewDetailScreen(reportId: widget.reportId),
+          builder: (_) => ModeratorReviewDetailScreen(reportId: report.id),
         ),
       ),
       child: Container(
@@ -190,7 +183,7 @@ class _ReportQueueCardState extends State<_ReportQueueCard> {
           borderRadius: BorderRadius.circular(16),
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withValues(alpha: 0.06),
+              color: Colors.black.withAlpha(15),
               blurRadius: 10,
               offset: const Offset(0, 4),
             ),
@@ -240,7 +233,8 @@ class _ReportQueueCardState extends State<_ReportQueueCard> {
                       children: [
                         _TypeChip(type: reportType),
                         const Spacer(),
-                        AiScoreChip(score: aiScore),
+                        // FIX: Ligtas na null-check bago mag-.toDouble() para hindi mag-crash kapag kaka-submit lang
+                        AiScoreChip(score: (aiScore ?? 0).toDouble()),
                       ],
                     ),
                     const SizedBox(height: 8),
@@ -362,9 +356,9 @@ class _TypeChip extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
       decoration: BoxDecoration(
-        color: _color.withValues(alpha: 0.12),
+        color: _color.withAlpha(30),
         borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: _color.withValues(alpha: 0.4)),
+        border: Border.all(color: _color.withAlpha(102)),
       ),
       child: Text(
         type.replaceAll('_', ' ').toUpperCase(),

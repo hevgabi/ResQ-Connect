@@ -17,6 +17,8 @@ import '../../widgets/app_bottom_nav.dart';
 import '../../widgets/loading_overlay.dart';
 import '../../widgets/role_badge.dart';
 
+// Kung saan man nanggagaling ang UserRole enum mo, siguraduhing imported o available dito.
+
 class CitizenProfileScreen extends StatefulWidget {
   const CitizenProfileScreen({super.key});
 
@@ -26,7 +28,7 @@ class CitizenProfileScreen extends StatefulWidget {
 
 class _CitizenProfileScreenState extends State<CitizenProfileScreen> {
   final FirestoreService _firestoreService = FirestoreService.instance;
-  final StorageService _storageService = StorageService();
+  final StorageService _storageService = StorageService.instance;
   final ImagePicker _imagePicker = ImagePicker();
 
   bool _editingPersonal = false;
@@ -157,7 +159,8 @@ class _CitizenProfileScreenState extends State<CitizenProfileScreen> {
     }
   }
 
-  Color _statusColor(String status) {
+  Color _statusColor(String? status) {
+    if (status == null) return AppTheme.primaryBlue;
     switch (status.toLowerCase()) {
       case 'resolved':
       case 'published':
@@ -171,11 +174,26 @@ class _CitizenProfileScreenState extends State<CitizenProfileScreen> {
     }
   }
 
+  // Helper method para i-convert ang String role ng UserModel papuntang UserRole enum ng RoleBadge
+  UserRole _mapStringToUserRole(String role) {
+    switch (role.toLowerCase()) {
+      case 'admin':
+        return UserRole.admin;
+      case 'rescuer':
+        return UserRole.rescuer;
+      case 'moderator':
+        return UserRole.moderator;
+      default:
+        return UserRole.citizen;
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final uid = FirebaseAuth.instance.currentUser?.uid;
-    if (uid == null)
+    if (uid == null) {
       return const Scaffold(body: Center(child: Text('Not logged in')));
+    }
 
     return StreamBuilder<UserModel?>(
       stream: _firestoreService.userStream(uid),
@@ -241,7 +259,9 @@ class _CitizenProfileScreenState extends State<CitizenProfileScreen> {
                 children: [
                   CircleAvatar(
                     radius: 44,
-                    backgroundColor: AppTheme.primaryBlue.withValues(alpha: 0.15),
+                    backgroundColor: AppTheme.primaryBlue.withValues(
+                      alpha: 0.15,
+                    ),
                     backgroundImage: user.photoUrl != null
                         ? CachedNetworkImageProvider(user.photoUrl!)
                         : null,
@@ -282,7 +302,8 @@ class _CitizenProfileScreenState extends State<CitizenProfileScreen> {
               style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
             ),
             const SizedBox(height: 6),
-            RoleBadge(role: user.role),
+            // Dito natin ginamit yung mapper function para maayos ang String to UserRole enum error
+            RoleBadge(role: UserRole.values.byName(user.role.toLowerCase())),
           ],
         ),
       ),
@@ -482,7 +503,7 @@ class _CitizenProfileScreenState extends State<CitizenProfileScreen> {
                 return Column(
                   children: list.map((sos) {
                     final date = sos.createdAt != null
-                        ? timeago.format(sos.createdAt!.toDate())
+                        ? timeago.format(sos.createdAt!)
                         : '';
                     return ListTile(
                       dense: true,
@@ -491,9 +512,9 @@ class _CitizenProfileScreenState extends State<CitizenProfileScreen> {
                         Icons.sos_outlined,
                         color: AppTheme.dangerRed,
                       ),
-                      title: Text(
+                      title: const Text(
                         'SOS Request',
-                        style: const TextStyle(fontSize: 14),
+                        style: TextStyle(fontSize: 14),
                       ),
                       subtitle: Text(
                         date,
@@ -568,15 +589,16 @@ class _CitizenProfileScreenState extends State<CitizenProfileScreen> {
     );
   }
 
-  Widget _statusChip(String status) {
+  Widget _statusChip(String? status) {
+    final displayStatus = status ?? 'unknown';
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
       decoration: BoxDecoration(
-        color: _statusColor(status),
+        color: _statusColor(displayStatus),
         borderRadius: BorderRadius.circular(12),
       ),
       child: Text(
-        status.toUpperCase(),
+        displayStatus.toUpperCase(),
         style: const TextStyle(
           color: Colors.white,
           fontSize: 10,

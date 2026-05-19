@@ -1,8 +1,10 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:timeago/timeago.dart' as timeago;
 
 import '../../models/mission_model.dart';
+import '../../models/sos_request_model.dart';
 import '../../services/firestore_service.dart';
 import '../../theme/app_theme.dart';
 import '../../widgets/rescuer_bottom_nav.dart';
@@ -34,13 +36,15 @@ class MissionHistoryScreen extends StatelessWidget {
           }
 
           final allMissions = snapshot.data ?? [];
+
+          // Inakma sa statuses na meron ang MissionModel mo: en_route | on_site | completed | cancelled
           final completed = allMissions
-              .where((m) => m.status == 'arrived' || m.status == 'completed')
+              .where((m) => m.status == 'completed' || m.status == 'arrived')
               .toList();
-          final deferred = allMissions
-              .where((m) => m.status == 'deferred')
+          final cancelled = allMissions
+              .where((m) => m.status == 'cancelled')
               .toList();
-          final shown = [...completed, ...deferred];
+          final shown = [...completed, ...cancelled];
 
           return Column(
             children: [
@@ -60,9 +64,9 @@ class MissionHistoryScreen extends StatelessWidget {
                     ),
                     const SizedBox(width: 12),
                     _summaryBadge(
-                      '${deferred.length} Deferred',
-                      AppTheme.warningOrange,
-                      Icons.pause_circle_outline,
+                      '${cancelled.length} Cancelled',
+                      AppTheme.dangerRed,
+                      Icons.cancel_outlined,
                     ),
                   ],
                 ),
@@ -79,10 +83,7 @@ class MissionHistoryScreen extends StatelessWidget {
                         separatorBuilder: (_, __) => const SizedBox(height: 10),
                         itemBuilder: (context, index) {
                           final mission = shown[index];
-                          return _MissionHistoryCard(
-                            mission: mission,
-                            firestoreService: firestoreService,
-                          );
+                          return _MissionHistoryCard(mission: mission);
                         },
                       ),
               ),
@@ -136,7 +137,7 @@ class MissionHistoryScreen extends StatelessWidget {
           ),
           const SizedBox(height: 6),
           Text(
-            'Completed and deferred missions will appear here.',
+            'Your finished missions will appear right here.',
             style: TextStyle(color: AppTheme.textSecondary),
             textAlign: TextAlign.center,
           ),
@@ -148,42 +149,31 @@ class MissionHistoryScreen extends StatelessWidget {
 
 class _MissionHistoryCard extends StatelessWidget {
   final MissionModel mission;
-  final FirestoreService firestoreService;
 
-  const _MissionHistoryCard({
-    required this.mission,
-    required this.firestoreService,
-  });
+  const _MissionHistoryCard({required this.mission});
 
   Color _statusColor(String status) {
     switch (status) {
       case 'arrived':
       case 'completed':
         return AppTheme.successGreen;
-      case 'deferred':
-        return AppTheme.warningOrange;
+      case 'cancelled':
+        return AppTheme.dangerRed;
       default:
         return AppTheme.primaryBlue;
     }
   }
 
   String _statusLabel(String status) {
-    switch (status) {
-      case 'arrived':
-      case 'completed':
-        return 'COMPLETED';
-      case 'deferred':
-        return 'DEFERRED';
-      default:
-        return status.toUpperCase();
+    if (status == 'arrived' || status == 'completed') {
+      return 'COMPLETED';
     }
+    return status.toUpperCase();
   }
 
   String? _responseTime() {
-    if (mission.acceptedAt == null || mission.arrivedAt == null) return null;
-    final diff = mission.arrivedAt!.toDate().difference(
-      mission.acceptedAt!.toDate(),
-    );
+    if (mission.createdAt == null || mission.completedAt == null) return null;
+    final diff = mission.completedAt!.difference(mission.createdAt!);
     return '${diff.inMinutes} min';
   }
 
@@ -192,80 +182,108 @@ class _MissionHistoryCard extends StatelessWidget {
     final color = _statusColor(mission.status);
     final responseTime = _responseTime();
 
-    return Card(
-      elevation: 2,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-      child: Padding(
-        padding: const EdgeInsets.all(14),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // Header: title + status badge
-            Row(
+    // Gumamit ng FutureBuilder para hilahin ang orihinal na SOS request record na may hawak ng details
+    return FutureBuilder<DocumentSnapshot>(
+      future: FirebaseFirestore.instance
+          .collection('sos_requests')
+          .doc(mission.sosId)
+          .get(),
+      builder: (context, snapshot) {
+        SOSRequestModel? sosDetails;
+        if (snapshot.hasData && snapshot.data!.exists) {
+          sosDetails = SOSRequestModel.fromFirestore(snapshot.data!);
+        }
+
+        return Card(
+          elevation: 2,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(14),
+          ),
+          child: Padding(
+            padding: const EdgeInsets.all(14),
+            child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Expanded(
-                  child: Text(
-                    mission.description != null &&
-                            mission.description!.isNotEmpty
-                        ? mission.description!
-                        : 'Mission #${mission.id.substring(0, 6)}',
+                // Header: Citizen Name/ID + Status Badge
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Expanded(
+                      child: Text(
+                        sosDetails != null
+                            ? 'Rescue: ${sosDetails.citizenName}'
+                            : 'Mission #${mission.id.substring(0, 6)}',
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          fontWeight: FontWeight.bold,
+                          fontSize: 14,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 10,
+                        vertical: 4,
+                      ),
+                      decoration: BoxDecoration(
+                        color: color,
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Text(
+                        _statusLabel(mission.status),
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 10,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 10),
+                const Divider(height: 1),
+                const SizedBox(height: 10),
+
+                // Description (kung meron galing sa SOS Details)
+                if (sosDetails != null && sosDetails.description != null) ...[
+                  Text(
+                    sosDetails.description!,
+                    style: TextStyle(
+                      color: AppTheme.textSecondary,
+                      fontSize: 13,
+                    ),
                     maxLines: 2,
                     overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                      fontWeight: FontWeight.bold,
-                      fontSize: 14,
-                    ),
                   ),
-                ),
-                const SizedBox(width: 8),
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 10,
-                    vertical: 4,
-                  ),
-                  decoration: BoxDecoration(
-                    color: color,
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: Text(
-                    _statusLabel(mission.status),
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 10,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 10),
-            const Divider(height: 1),
-            const SizedBox(height: 10),
+                  const SizedBox(height: 10),
+                ],
 
-            // Stats row
-            Wrap(
-              spacing: 16,
-              runSpacing: 8,
-              children: [
-                if (mission.acceptedAt != null)
-                  _statItem(
-                    Icons.calendar_today_outlined,
-                    timeago.format(mission.acceptedAt!.toDate()),
-                  ),
-                _statItem(
-                  Icons.people_outline,
-                  '${mission.personsCount} person${mission.personsCount != 1 ? 's' : ''} rescued',
+                // Stats row
+                Wrap(
+                  spacing: 16,
+                  runSpacing: 8,
+                  children: [
+                    if (mission.createdAt != null)
+                      _statItem(
+                        Icons.calendar_today_outlined,
+                        timeago.format(mission.createdAt!),
+                      ),
+                    if (responseTime != null)
+                      _statItem(
+                        Icons.timer_outlined,
+                        'Duration: $responseTime',
+                      ),
+                    if (mission.notes != null && mission.notes!.isNotEmpty)
+                      _statItem(Icons.sticky_note_2_outlined, mission.notes!),
+                  ],
                 ),
-                if (responseTime != null)
-                  _statItem(Icons.timer_outlined, 'Response: $responseTime'),
-                if (mission.evacCenterId != null)
-                  _evacCenterInfo(mission.evacCenterId!),
               ],
             ),
-          ],
-        ),
-      ),
+          ),
+        );
+      },
     );
   }
 
@@ -280,33 +298,6 @@ class _MissionHistoryCard extends StatelessWidget {
           style: TextStyle(color: AppTheme.textSecondary, fontSize: 12),
         ),
       ],
-    );
-  }
-
-  Widget _evacCenterInfo(String evacCenterId) {
-    return FutureBuilder<Map<String, dynamic>?>(
-      future: firestoreService.getEvacCenterById(evacCenterId),
-      builder: (context, snapshot) {
-        final name = snapshot.data?['name'] ?? 'Evac Center';
-        return Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Icon(
-              Icons.home_outlined,
-              size: 14,
-              color: AppTheme.successGreen,
-            ),
-            const SizedBox(width: 4),
-            Text(
-              name,
-              style: const TextStyle(
-                color: AppTheme.successGreen,
-                fontSize: 12,
-              ),
-            ),
-          ],
-        );
-      },
     );
   }
 }

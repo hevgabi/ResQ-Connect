@@ -1,6 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 
 import '../models/alert_model.dart';
+import '../models/user_model.dart';
 import '../models/sos_request_model.dart';
 import '../models/mission_model.dart';
 import '../models/report_model.dart';
@@ -80,13 +81,19 @@ class FirestoreService {
   }
 
   /// Live updates for a single SOS request document.
-  Stream<DocumentSnapshot> sosRequestStream(String sosId) {
-    return _sosRequests.doc(sosId).snapshots();
+  Stream<SOSRequestModel?> sosRequestStream(String sosId) {
+    return _sosRequests.doc(sosId).snapshots().map((doc) {
+      if (!doc.exists) return null;
+      return SOSRequestModel.fromFirestore(doc);
+    });
   }
 
-  /// Live updates for a single rescuer document.
-  Stream<DocumentSnapshot> rescuerStream(String rescuerId) {
-    return _rescuers.doc(rescuerId).snapshots();
+  /// Live updates for a rescuer document as a raw map (null if doc missing).
+  Stream<Map<String, dynamic>?> rescuerStream(String rescuerId) {
+    return _rescuers.doc(rescuerId).snapshots().map((doc) {
+      if (!doc.exists) return null;
+      return {'id': doc.id, ...doc.data() as Map<String, dynamic>};
+    });
   }
 
   /// All missions assigned to a specific rescuer.
@@ -153,6 +160,11 @@ class FirestoreService {
       ...data,
       'updated_at': FieldValue.serverTimestamp(),
     });
+  }
+
+  /// Fallback method naming to handle lower-case screen callers dynamically
+  Future<void> updateSosRequest(String sosId, Map<String, dynamic> data) async {
+    await updateSOSRequest(sosId, data);
   }
 
   // ── Missions ──────────────────────────────────────────────────────────────
@@ -226,7 +238,8 @@ class FirestoreService {
 
   // ── Evacuation Centers ────────────────────────────────────────────────────
 
-  /// Fetches all evacuation centers as plain maps.
+  /// FIXED: Ginawang List<Map<String, dynamic>> representation para compatible
+  /// sa custom processing loops ng UI components mo.
   Future<List<Map<String, dynamic>>> getEvacCenters() async {
     final snap = await _evacCenters.get();
     return snap.docs
@@ -252,5 +265,93 @@ class FirestoreService {
       'longitude': lng,
       'location_updated_at': FieldValue.serverTimestamp(),
     }, SetOptions(merge: true));
+  }
+
+  Future<void> updateUserLocation(String uid, double lat, double lng) async {
+    await _users.doc(uid).set({
+      'latitude': lat,
+      'longitude': lng,
+      'location_updated_at': FieldValue.serverTimestamp(),
+    }, SetOptions(merge: true));
+  }
+
+  Stream<UserModel?> userStream(String uid) {
+    return _users.doc(uid).snapshots().map((doc) {
+      if (!doc.exists) return null;
+      return UserModel.fromFirestore(doc);
+    });
+  }
+
+  /// Fetch a user document as a [UserModel]. Returns null if not found.
+  Future<UserModel?> getUserById(String uid) async {
+    final doc = await _users.doc(uid).get();
+    if (!doc.exists) return null;
+    return UserModel.fromFirestore(doc);
+  }
+
+  /// Fetch a rescuer document as a raw map. Returns null if not found.
+  Future<Map<String, dynamic>?> getRescuerById(String uid) async {
+    final doc = await _rescuers.doc(uid).get();
+    if (!doc.exists) return null;
+    return {'id': doc.id, ...doc.data() as Map<String, dynamic>};
+  }
+
+  /// Update a single field on a user document (merge-safe).
+  Future<void> updateUserField(String uid, String field, dynamic value) async {
+    await _users.doc(uid).set({field: value}, SetOptions(merge: true));
+  }
+
+  /// Returns the [limit] most-recent SOS requests by a given citizen.
+  Future<List<SOSRequestModel>> getRecentSosByUser(
+    String uid, {
+    int limit = 5,
+  }) async {
+    final snap = await _sosRequests
+        .where('citizen_id', isEqualTo: uid)
+        .orderBy('created_at', descending: true)
+        .limit(limit)
+        .get();
+    return snap.docs.map((doc) => SOSRequestModel.fromFirestore(doc)).toList();
+  }
+
+  /// Returns the [limit] most-recent reports by a given reporter.
+  Future<List<ReportModel>> getRecentReportsByUser(
+    String uid, {
+    int limit = 5,
+  }) async {
+    final snap = await _reports
+        .where('reporter_id', isEqualTo: uid)
+        .orderBy('created_at', descending: true)
+        .limit(limit)
+        .get();
+    return snap.docs.map((doc) => ReportModel.fromFirestore(doc)).toList();
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // EXTENDED HELPERS ADDED FOR THE SCREENS (FIXES COMPILATION ERRORS)
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  /// Updates fields inside the 'rescuers' collection (e.g. active_mission_count).
+  Future<void> updateRescuer(String uid, Map<String, dynamic> data) async {
+    await _rescuers.doc(uid).update(data);
+  }
+
+  /// Fetches a specific mission by its ID.
+  Future<MissionModel?> getMissionById(String missionId) async {
+    final doc = await _missions.doc(missionId).get();
+    if (!doc.exists) return null;
+    return MissionModel.fromFirestore(doc);
+  }
+
+  /// FIXED: Inalign sa unified PascalCase naming 'getSOSRequestById' para walang lito
+  Future<SOSRequestModel?> getSOSRequestById(String sosId) async {
+    final doc = await _sosRequests.doc(sosId).get();
+    if (!doc.exists) return null;
+    return SOSRequestModel.fromFirestore(doc);
+  }
+
+  /// Fallback method for camelCase callers from the automated UI pipeline
+  Future<SOSRequestModel?> getSosRequestById(String sosId) async {
+    return getSOSRequestById(sosId);
   }
 }

@@ -59,7 +59,7 @@ class _RescuerProfileScreenState extends State<RescuerProfileScreen> {
       setState(() {
         _userData = uData;
         _rescuerData = rData;
-        _onDuty = rData?['on_duty'] ?? false;
+        _onDuty = rData?['is_on_duty'] ?? false;
         if (!_editingPersonal) {
           _firstNameController.text = uData?['first_name'] ?? '';
           _lastNameController.text = uData?['last_name'] ?? '';
@@ -170,7 +170,9 @@ class _RescuerProfileScreenState extends State<RescuerProfileScreen> {
                     children: [
                       CircleAvatar(
                         radius: 44,
-                        backgroundColor: AppTheme.primaryBlue.withValues(alpha: 0.15),
+                        backgroundColor: AppTheme.primaryBlue.withValues(
+                          alpha: 0.15,
+                        ),
                         child: Text(
                           _initials().isNotEmpty ? _initials() : '?',
                           style: const TextStyle(
@@ -270,7 +272,9 @@ class _RescuerProfileScreenState extends State<RescuerProfileScreen> {
                         child: LinearProgressIndicator(
                           value: capacityRatio.clamp(0.0, 1.0),
                           minHeight: 12,
-                          backgroundColor: capacityColor.withValues(alpha: 0.15),
+                          backgroundColor: capacityColor.withValues(
+                            alpha: 0.15,
+                          ),
                           valueColor: AlwaysStoppedAnimation<Color>(
                             capacityColor,
                           ),

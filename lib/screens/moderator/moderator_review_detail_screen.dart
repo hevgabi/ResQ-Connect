@@ -26,8 +26,6 @@ class _ModeratorReviewDetailScreenState
   bool _isLoading = true;
   bool _isActing = false;
   String? _error;
-  int _selectedMediaIndex = 0;
-  final PageController _pageController = PageController();
   final TextEditingController _rejectionController = TextEditingController();
 
   @override
@@ -38,7 +36,6 @@ class _ModeratorReviewDetailScreenState
 
   @override
   void dispose() {
-    _pageController.dispose();
     _rejectionController.dispose();
     super.dispose();
   }
@@ -64,9 +61,9 @@ class _ModeratorReviewDetailScreenState
         _isLoading = false;
       });
 
-      // Load author name
-      final authorId = data['author_id'] as String?;
-      if (authorId != null) {
+      // FIX: Ginawang dynamic fallback mula reporter_id o author_id para sigurado ang loading ng author profile
+      final authorId = (data['reporter_id'] ?? data['author_id']) as String?;
+      if (authorId != null && authorId.isNotEmpty) {
         final userDoc = await FirebaseFirestore.instance
             .collection('users')
             .doc(authorId)
@@ -260,13 +257,18 @@ class _ModeratorReviewDetailScreenState
 
   Widget _buildBody() {
     final data = _reportData!;
+
+    // FIX: Ginawang dynamic ang array checking para sa photo_urls o media_urls
     final mediaUrls =
-        (data['media_urls'] as List<dynamic>?)
+        ((data['photo_urls'] ?? data['media_urls']) as List<dynamic>?)
             ?.map((e) => e.toString())
             .toList() ??
         [];
-    final reportType = (data['type'] as String?) ?? 'General';
-    final description = (data['description'] as String?) ?? '';
+
+    final reportType =
+        (data['category'] ?? data['type'] as String?) ?? 'General';
+    final title = (data['title'] as String?) ?? 'Incident Report';
+    final bodyText = (data['body'] ?? data['description'] as String?) ?? '';
     final lat = data['latitude'] as double?;
     final lng = data['longitude'] as double?;
     final createdAt = (data['created_at'] as Timestamp?)?.toDate();
@@ -286,15 +288,15 @@ class _ModeratorReviewDetailScreenState
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Text(
-                  'Report Details',
-                  style: TextStyle(
-                    fontSize: 16,
+                Text(
+                  title,
+                  style: const TextStyle(
+                    fontSize: 18,
                     fontWeight: FontWeight.bold,
                     color: Color(0xFF0D47A1),
                   ),
                 ),
-                const SizedBox(height: 12),
+                const Divider(height: 20, thickness: 1),
                 _MetaRow(
                   icon: Icons.label_outline,
                   label: 'Type',
@@ -339,9 +341,7 @@ class _ModeratorReviewDetailScreenState
                 ),
                 const SizedBox(height: 10),
                 Text(
-                  description.isNotEmpty
-                      ? description
-                      : 'No description provided.',
+                  bodyText.isNotEmpty ? bodyText : 'No description provided.',
                   style: const TextStyle(
                     fontSize: 14,
                     color: Color(0xFF37474F),
@@ -370,7 +370,7 @@ class _ModeratorReviewDetailScreenState
                       ),
                     ),
                     const SizedBox(width: 10),
-                    AiScoreChip(score: aiScore),
+                    AiScoreChip(score: aiScore.toDouble()),
                   ],
                 ),
                 const SizedBox(height: 10),
@@ -379,7 +379,6 @@ class _ModeratorReviewDetailScreenState
             ),
           ),
 
-          // Bottom padding for sticky buttons
           const SizedBox(height: 100),
         ],
       ),
@@ -393,7 +392,8 @@ class _ModeratorReviewDetailScreenState
         color: Colors.white,
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withValues(alpha: 0.08),
+            // FIX: Pinalitan ang deprecated .withValues() patungong standard .withAlpha()
+            color: Colors.black.withAlpha(20),
             blurRadius: 12,
             offset: const Offset(0, -4),
           ),
@@ -478,7 +478,6 @@ class _MediaGalleryState extends State<_MediaGallery> {
   Widget build(BuildContext context) {
     return Column(
       children: [
-        // Main view
         SizedBox(
           height: 260,
           child: PageView.builder(
@@ -511,7 +510,6 @@ class _MediaGalleryState extends State<_MediaGallery> {
             },
           ),
         ),
-        // Thumbnail strip
         if (widget.mediaUrls.length > 1)
           Container(
             height: 64,
@@ -584,7 +582,8 @@ class _SectionCard extends StatelessWidget {
         borderRadius: BorderRadius.circular(16),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withValues(alpha: 0.05),
+            // FIX: Deprecated .withValues() fixed
+            color: Colors.black.withAlpha(12),
             blurRadius: 8,
             offset: const Offset(0, 3),
           ),
@@ -670,9 +669,10 @@ class _AiScoreExplanation extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: _color.withValues(alpha: 0.08),
+        // FIX: Deprecated .withValues() fixed
+        color: _color.withAlpha(20),
         borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: _color.withValues(alpha: 0.3)),
+        border: Border.all(color: _color.withAlpha(76)),
       ),
       child: Text(
         _explanation,

@@ -19,8 +19,10 @@ class ReportIncidentScreen extends StatefulWidget {
 
 class _ReportIncidentScreenState extends State<ReportIncidentScreen> {
   final FirestoreService _firestoreService = FirestoreService.instance;
-  final StorageService _storageService = StorageService();
-  final LocationService _locationService = LocationService();
+
+  // SOLUSYON: Ginamit ang tamang named constructor/singleton pattern ng StorageService mo
+  final StorageService _storageService = StorageService.instance;
+  final LocationService _locationService = LocationService.instance;
   final ImagePicker _imagePicker = ImagePicker();
 
   final _formKey = GlobalKey<FormState>();
@@ -52,6 +54,15 @@ class _ReportIncidentScreenState extends State<ReportIncidentScreen> {
     try {
       final pos = await _locationService.getCurrentPosition();
       if (!mounted) return;
+
+      if (pos == null) {
+        setState(() {
+          _locationText = 'Location permissions denied or GPS off';
+          _locationLoading = false;
+        });
+        return;
+      }
+
       setState(() {
         _lat = pos.latitude;
         _lng = pos.longitude;
@@ -112,17 +123,15 @@ class _ReportIncidentScreenState extends State<ReportIncidentScreen> {
     setState(() => _loading = true);
 
     try {
-      // Upload media
-      final List<String> mediaUrls = [];
-      for (final file in _mediaFiles) {
-        final url = await _storageService.uploadReportMedia(
-          uid,
-          File(file.path),
-        );
-        mediaUrls.add(url);
-      }
+      final List<File> filesToUpload = _mediaFiles
+          .map((xFile) => File(xFile.path))
+          .toList();
 
-      // Write to Firestore
+      final List<String> mediaUrls = await _storageService.uploadReportMedia(
+        uid,
+        filesToUpload,
+      );
+
       await _firestoreService.createReport({
         'author_id': uid,
         'type': _selectedType,
@@ -186,7 +195,6 @@ class _ReportIncidentScreenState extends State<ReportIncidentScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                // Incident Type
                 _sectionLabel('Incident Type'),
                 const SizedBox(height: 8),
                 Container(
@@ -213,7 +221,6 @@ class _ReportIncidentScreenState extends State<ReportIncidentScreen> {
 
                 const SizedBox(height: 18),
 
-                // Description
                 _sectionLabel('Description'),
                 const SizedBox(height: 8),
                 TextFormField(
@@ -246,7 +253,6 @@ class _ReportIncidentScreenState extends State<ReportIncidentScreen> {
 
                 const SizedBox(height: 18),
 
-                // Media
                 _sectionLabel('Media Attachments'),
                 const SizedBox(height: 8),
                 Row(
@@ -331,7 +337,6 @@ class _ReportIncidentScreenState extends State<ReportIncidentScreen> {
 
                 const SizedBox(height: 18),
 
-                // Location
                 _sectionLabel('Location'),
                 const SizedBox(height: 8),
                 Container(
@@ -366,7 +371,6 @@ class _ReportIncidentScreenState extends State<ReportIncidentScreen> {
 
                 const SizedBox(height: 28),
 
-                // Submit
                 ElevatedButton.icon(
                   onPressed: _submit,
                   icon: const Icon(Icons.send_rounded),
@@ -411,9 +415,9 @@ class _ReportIncidentScreenState extends State<ReportIncidentScreen> {
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
         decoration: BoxDecoration(
-          color: AppTheme.primaryBlue.withValues(alpha: 0.08),
+          color: AppTheme.primaryBlue.withOpacity(0.08),
           borderRadius: BorderRadius.circular(10),
-          border: Border.all(color: AppTheme.primaryBlue.withValues(alpha: 0.3)),
+          border: Border.all(color: AppTheme.primaryBlue.withOpacity(0.3)),
         ),
         child: Row(
           children: [

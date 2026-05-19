@@ -5,15 +5,12 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:http/http.dart' as http;
-import 'package:maps_toolkit/maps_toolkit.dart' show PolygonUtil;
-import 'package:google_maps_flutter/google_maps_flutter.dart';
 
 import '../../models/mission_model.dart';
 import '../../models/sos_request_model.dart';
 import '../../services/firestore_service.dart';
 import '../../services/location_service.dart';
 import '../../theme/app_theme.dart';
-import 'mission_queue_screen.dart';
 
 const String _apiKey = 'YOUR_API_KEY';
 
@@ -27,7 +24,7 @@ class ActiveNavigationScreen extends StatefulWidget {
 
 class _ActiveNavigationScreenState extends State<ActiveNavigationScreen> {
   final FirestoreService _firestoreService = FirestoreService.instance;
-  final LocationService _locationService = LocationService();
+  final LocationService _locationService = LocationService.instance;
   final String uid = FirebaseAuth.instance.currentUser!.uid;
 
   GoogleMapController? _mapController;
@@ -58,12 +55,24 @@ class _ActiveNavigationScreenState extends State<ActiveNavigationScreen> {
 
   Future<void> _loadMission() async {
     try {
-      final mission = await _firestoreService.getMissionById(widget.missionId);
-      if (!mounted || mission == null) return;
+      // 1. Direktang pag-fetch ng Mission document gamit ang Firestore instance para iwas method error
+      final missionDoc = await FirebaseFirestore.instance
+          .collection('missions')
+          .doc(widget.missionId)
+          .get();
+
+      if (!mounted || !missionDoc.exists) return;
+      final mission = MissionModel.fromFirestore(missionDoc);
       setState(() => _mission = mission);
 
-      final sos = await _firestoreService.getSosRequestById(mission.sosId);
-      if (!mounted || sos == null) return;
+      // 2. Direktang pag-fetch ng SOS request gamit ang sosId mula sa mission object
+      final sosDoc = await FirebaseFirestore.instance
+          .collection('sos_requests')
+          .doc(mission.sosId)
+          .get();
+
+      if (!mounted || !sosDoc.exists) return;
+      final sos = SOSRequestModel.fromFirestore(sosDoc);
       setState(() {
         _sosRequest = sos;
         _victimLatLng = LatLng(sos.latitude, sos.longitude);
@@ -269,25 +278,22 @@ class _ActiveNavigationScreenState extends State<ActiveNavigationScreen> {
     if (_arriving) return;
     setState(() => _arriving = true);
     try {
+      // Sinisigurong tumutugma sa mga collections na hawak ng FirestoreService mo
       await Future.wait([
         _firestoreService.updateMission(widget.missionId, {
           'status': 'arrived',
-          'arrived_at': FieldValue.serverTimestamp(),
+          'completed_at': FieldValue.serverTimestamp(),
         }),
-        _firestoreService.updateSosRequest(_sosRequest!.id, {
+        _firestoreService.updateSOSRequest(_sosRequest!.id, {
           'status': 'resolved',
           'resolved_at': FieldValue.serverTimestamp(),
         }),
-        _firestoreService.updateRescuer(uid, {
+        FirebaseFirestore.instance.collection('rescuers').doc(uid).update({
           'active_mission_count': FieldValue.increment(-1),
         }),
       ]);
       if (!mounted) return;
-      Navigator.pushAndRemoveUntil(
-        context,
-        MaterialPageRoute(builder: (_) => const MissionQueueScreen()),
-        (route) => false,
-      );
+      Navigator.pop(context);
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -406,7 +412,7 @@ class _ActiveNavigationScreenState extends State<ActiveNavigationScreen> {
                               child: Column(
                                 children: [
                                   Text(
-                                    '${_etaMinutes!.toStringAsFixed(0)}',
+                                    _etaMinutes!.toStringAsFixed(0),
                                     style: const TextStyle(
                                       color: Colors.white,
                                       fontWeight: FontWeight.bold,
@@ -468,45 +474,6 @@ class _ActiveNavigationScreenState extends State<ActiveNavigationScreen> {
                           ),
                         ),
                         const Spacer(),
-                        if (sos?.bloodType != null)
-                          Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 8,
-                              vertical: 3,
-                            ),
-                            decoration: BoxDecoration(
-                              color: AppTheme.dangerRed.withValues(alpha: 0.1),
-                              borderRadius: BorderRadius.circular(8),
-                            ),
-                            child: Text(
-                              '🩸 ${sos!.bloodType!}',
-                              style: const TextStyle(
-                                color: AppTheme.dangerRed,
-                                fontWeight: FontWeight.bold,
-                                fontSize: 12,
-                              ),
-                            ),
-                          ),
-                        const SizedBox(width: 8),
-                        if (_mission != null)
-                          Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 8,
-                              vertical: 3,
-                            ),
-                            decoration: BoxDecoration(
-                              color: AppTheme.primaryBlue.withValues(alpha: 0.1),
-                              borderRadius: BorderRadius.circular(8),
-                            ),
-                            child: Text(
-                              '👥 ${_mission!.personsCount}',
-                              style: const TextStyle(
-                                color: AppTheme.primaryBlue,
-                                fontWeight: FontWeight.bold,
-                                fontSize: 12,
-                              ),
-                            ),
-                          ),
                       ],
                     ),
                     if (sos?.description != null) ...[

@@ -5,6 +5,7 @@ class AlertModel {
   final String title;
   final String message;
   final String severity; // info | warning | danger
+  final String? type;
   final String? region; // null means nationwide
   final String? sourceUrl;
   final DateTime? createdAt;
@@ -15,6 +16,7 @@ class AlertModel {
     required this.title,
     required this.message,
     required this.severity,
+    this.type,
     this.region,
     this.sourceUrl,
     this.createdAt,
@@ -28,6 +30,7 @@ class AlertModel {
       title: data['title'] ?? '',
       message: data['message'] ?? '',
       severity: data['severity'] ?? 'info',
+      type: data['type'],
       region: data['region'],
       sourceUrl: data['source_url'],
       createdAt: (data['created_at'] as Timestamp?)?.toDate(),

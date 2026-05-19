@@ -34,8 +34,30 @@ class EvacCenterModel {
   double get occupancyRate =>
       capacity > 0 ? (currentOccupancy / capacity).clamp(0.0, 1.0) : 0.0;
 
+  // ═══════════════════════════════════════════════════════════════════════════
+  // 🔥 FIXED: IDINAGDAG ANG FROMMAP CONSTRUCTOR PARA SA MAP SCREEN ITERATOR
+  // ═══════════════════════════════════════════════════════════════════════════
+  factory EvacCenterModel.fromMap(Map<String, dynamic> data) {
+    return EvacCenterModel(
+      id: data['id'] ?? '',
+      name: data['name'] ?? '',
+      address: data['address'] ?? '',
+      latitude: (data['latitude'] as num?)?.toDouble() ?? 0.0,
+      longitude: (data['longitude'] as num?)?.toDouble() ?? 0.0,
+      capacity: data['capacity'] ?? 0,
+      currentOccupancy:
+          data['current_occupancy'] ?? data['currentOccupancy'] ?? 0,
+      isOpen: data['is_open'] ?? data['isOpen'] ?? false,
+      contactNumber: data['contact_number'] ?? data['contactNumber'],
+      facilities: List<String>.from(data['facilities'] ?? []),
+      updatedAt: data['updated_at'] is Timestamp
+          ? (data['updated_at'] as Timestamp).toDate()
+          : null,
+    );
+  }
+
   factory EvacCenterModel.fromFirestore(DocumentSnapshot doc) {
-    final data = doc.data() as Map<String, dynamic>;
+    final data = doc.data() as Map<String, dynamic>? ?? {};
     return EvacCenterModel(
       id: doc.id,
       name: data['name'] ?? '',

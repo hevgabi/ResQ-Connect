@@ -87,7 +87,7 @@ class AlertsScreen extends StatelessWidget {
               final alert = alerts[index];
               final color = _severityColor(alert.severity);
               final timeText = alert.createdAt != null
-                  ? timeago.format(alert.createdAt!.toDate())
+                  ? timeago.format(alert.createdAt!)
                   : '';
 
               return Container(
@@ -121,7 +121,9 @@ class AlertsScreen extends StatelessWidget {
                     child: Row(
                       children: [
                         Text(
-                          alert.source,
+                          alert.sourceUrl != null
+                              ? 'Source: ${alert.sourceUrl}'
+                              : 'No source',
                           style: TextStyle(
                             color: AppTheme.textSecondary,
                             fontSize: 12,
