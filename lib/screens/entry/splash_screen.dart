@@ -3,10 +3,10 @@ import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../providers/auth_provider.dart';
-import '../citizen/home_screen.dart';
+import '../citizen/citizen_home_screen.dart';
 import '../rescuer/mission_queue_screen.dart';
-import '../moderator/report_queue_screen.dart';
-import '../admin/overview_screen.dart';
+import '../moderator/moderator_report_queue_screen.dart';
+import '../admin/admin_overview_screen.dart';
 import 'onboarding_screen.dart';
 import 'login_screen.dart';
 
@@ -80,10 +80,10 @@ class _SplashScreenState extends State<SplashScreen>
   Future<void> _navigate() async {
     if (!mounted) return;
 
-    final authProvider = context.read<AppAuthProvider>();
+    final authProvider = context.read<AuthProvider>();
 
-    if (authProvider.isAuthenticated) {
-      _navigateToDashboard(authProvider.userRole);
+    if (authProvider.user != null) {
+      _navigateToDashboard(authProvider.role);
     } else {
       final prefs = await SharedPreferences.getInstance();
       final onboardingDone = prefs.getBool('onboarding_done') ?? false;
@@ -105,7 +105,7 @@ class _SplashScreenState extends State<SplashScreen>
         destination = const MissionQueueScreen();
         break;
       case 'moderator':
-        destination = const ReportQueueScreen();
+        destination = const ModeratorReportQueueScreen();
         break;
       case 'admin':
         destination = const AdminOverviewScreen();
@@ -230,7 +230,7 @@ class _SplashScreenState extends State<SplashScreen>
                           Text(
                             'Disaster Response · Philippines',
                             style: TextStyle(
-                              color: Colors.white.withOpacity(0.65),
+                              color: Colors.white.withValues(alpha: 0.65),
                               fontSize: 13,
                               fontWeight: FontWeight.w400,
                               letterSpacing: 2.0,
@@ -262,7 +262,7 @@ class _SplashScreenState extends State<SplashScreen>
                       child: CircularProgressIndicator(
                         strokeWidth: 2,
                         valueColor: AlwaysStoppedAnimation<Color>(
-                          Colors.white.withOpacity(0.7),
+                          Colors.white.withValues(alpha: 0.7),
                         ),
                       ),
                     ),
@@ -270,7 +270,7 @@ class _SplashScreenState extends State<SplashScreen>
                     Text(
                       'Initializing...',
                       style: TextStyle(
-                        color: Colors.white.withOpacity(0.5),
+                        color: Colors.white.withValues(alpha: 0.5),
                         fontSize: 12,
                         letterSpacing: 1.5,
                       ),
@@ -294,12 +294,12 @@ class _SplashScreenState extends State<SplashScreen>
         shape: BoxShape.circle,
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.25),
+            color: Colors.black.withValues(alpha: 0.25),
             blurRadius: 30,
             offset: const Offset(0, 10),
           ),
           BoxShadow(
-            color: const Color(0xFF1FAA59).withOpacity(0.4),
+            color: const Color(0xFF1FAA59).withValues(alpha: 0.4),
             blurRadius: 20,
             spreadRadius: 2,
           ),
@@ -340,7 +340,7 @@ class _SplashScreenState extends State<SplashScreen>
             bottom: 18,
             child: Icon(
               Icons.wifi_tethering,
-              color: const Color(0xFF0D47A1).withOpacity(0.25),
+              color: const Color(0xFF0D47A1).withValues(alpha: 0.25),
               size: 36,
             ),
           ),

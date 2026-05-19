@@ -205,7 +205,7 @@ class _LoginScreenState extends State<LoginScreen>
                       borderRadius: BorderRadius.circular(20),
                       boxShadow: [
                         BoxShadow(
-                          color: Colors.black.withOpacity(0.06),
+                          color: Colors.black.withValues(alpha: 0.06),
                           blurRadius: 24,
                           offset: const Offset(0, 8),
                         ),
@@ -366,7 +366,7 @@ class _BrandingHeader extends StatelessWidget {
             borderRadius: BorderRadius.circular(20),
             boxShadow: [
               BoxShadow(
-                color: const Color(0xFF0D47A1).withOpacity(0.35),
+                color: const Color(0xFF0D47A1).withValues(alpha: 0.35),
                 blurRadius: 20,
                 offset: const Offset(0, 8),
               ),
@@ -494,7 +494,7 @@ class _SignInButton extends StatelessWidget {
         style: ElevatedButton.styleFrom(
           backgroundColor: const Color(0xFF0D47A1),
           foregroundColor: Colors.white,
-          disabledBackgroundColor: const Color(0xFF0D47A1).withOpacity(0.5),
+          disabledBackgroundColor: const Color(0xFF0D47A1).withValues(alpha: 0.5),
           elevation: 0,
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(14),

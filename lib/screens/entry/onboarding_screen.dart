@@ -362,7 +362,7 @@ class _SlideContentState extends State<_SlideContent>
             height: 200,
             decoration: BoxDecoration(
               shape: BoxShape.circle,
-              color: slide.accentColor.withOpacity(0.08),
+              color: slide.accentColor.withValues(alpha: 0.08),
             ),
           ),
           // Middle ring
@@ -371,7 +371,7 @@ class _SlideContentState extends State<_SlideContent>
             height: 155,
             decoration: BoxDecoration(
               shape: BoxShape.circle,
-              color: slide.accentColor.withOpacity(0.12),
+              color: slide.accentColor.withValues(alpha: 0.12),
             ),
           ),
           // Inner circle with icon
@@ -383,7 +383,7 @@ class _SlideContentState extends State<_SlideContent>
               color: slide.accentColor,
               boxShadow: [
                 BoxShadow(
-                  color: slide.accentColor.withOpacity(0.4),
+                  color: slide.accentColor.withValues(alpha: 0.4),
                   blurRadius: 24,
                   offset: const Offset(0, 8),
                 ),
@@ -398,7 +398,7 @@ class _SlideContentState extends State<_SlideContent>
             child: Icon(
               slide.backgroundIcon,
               size: 48,
-              color: slide.accentColor.withOpacity(0.1),
+              color: slide.accentColor.withValues(alpha: 0.1),
             ),
           ),
         ],

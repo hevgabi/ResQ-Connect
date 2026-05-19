@@ -94,7 +94,7 @@ class RoleBadge extends StatelessWidget {
       decoration: BoxDecoration(
         color: style.background,
         borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: style.border.withOpacity(0.5)),
+        border: Border.all(color: style.border.withValues(alpha: 0.5)),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,

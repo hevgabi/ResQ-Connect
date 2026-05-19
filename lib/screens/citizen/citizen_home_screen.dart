@@ -68,7 +68,7 @@ class _SkeletonBoxState extends State<_SkeletonBox>
         width: widget.width,
         height: widget.height,
         decoration: BoxDecoration(
-          color: Colors.grey.withOpacity(_anim.value),
+          color: Colors.grey.withValues(alpha: _anim.value),
           borderRadius: BorderRadius.circular(widget.radius),
         ),
       ),
@@ -476,8 +476,8 @@ class _CitizenHomeScreenState extends State<CitizenHomeScreen> {
     final isCritical = alert.severity == 'critical';
     final isWeather = alert.type == 'weather';
     final bannerColor = isCritical
-        ? _red.withOpacity(0.08)
-        : _orange.withOpacity(0.08);
+        ? _red.withValues(alpha: 0.08)
+        : _orange.withValues(alpha: 0.08);
     final borderColor = isCritical ? _red : _orange;
     final iconData = isCritical
         ? Icons.warning_rounded
@@ -531,7 +531,7 @@ class _CitizenHomeScreenState extends State<CitizenHomeScreen> {
                             vertical: 2,
                           ),
                           decoration: BoxDecoration(
-                            color: _blue.withOpacity(0.15),
+                            color: _blue.withValues(alpha: 0.15),
                             borderRadius: BorderRadius.circular(20),
                           ),
                           child: const Row(
@@ -561,7 +561,7 @@ class _CitizenHomeScreenState extends State<CitizenHomeScreen> {
                     alert.message,
                     style: TextStyle(
                       fontSize: 12,
-                      color: borderColor.withOpacity(0.8),
+                      color: borderColor.withValues(alpha: 0.8),
                     ),
                     maxLines: 2,
                     overflow: TextOverflow.ellipsis,
@@ -575,7 +575,7 @@ class _CitizenHomeScreenState extends State<CitizenHomeScreen> {
               child: Icon(
                 Icons.close,
                 size: 16,
-                color: borderColor.withOpacity(0.6),
+                color: borderColor.withValues(alpha: 0.6),
               ),
             ),
           ],
@@ -610,7 +610,7 @@ class _CitizenHomeScreenState extends State<CitizenHomeScreen> {
           width: 44,
           height: 44,
           decoration: BoxDecoration(
-            color: _blue.withOpacity(0.1),
+            color: _blue.withValues(alpha: 0.1),
             borderRadius: BorderRadius.circular(12),
           ),
           child: const Icon(Icons.people_alt_rounded, color: _blue, size: 22),
@@ -651,7 +651,7 @@ class _CitizenHomeScreenState extends State<CitizenHomeScreen> {
           width: 44,
           height: 44,
           decoration: BoxDecoration(
-            color: _blue.withOpacity(0.1),
+            color: _blue.withValues(alpha: 0.1),
             borderRadius: BorderRadius.circular(12),
           ),
           child: const Icon(Icons.people_alt_rounded, color: _blue, size: 22),
@@ -711,7 +711,7 @@ class _CitizenHomeScreenState extends State<CitizenHomeScreen> {
           width: 44,
           height: 44,
           decoration: BoxDecoration(
-            color: _green.withOpacity(0.1),
+            color: _green.withValues(alpha: 0.1),
             borderRadius: BorderRadius.circular(12),
           ),
           child: const Icon(Icons.home_work_outlined, color: _green, size: 22),
@@ -751,7 +751,7 @@ class _CitizenHomeScreenState extends State<CitizenHomeScreen> {
           width: 44,
           height: 44,
           decoration: BoxDecoration(
-            color: _green.withOpacity(0.1),
+            color: _green.withValues(alpha: 0.1),
             borderRadius: BorderRadius.circular(12),
           ),
           child: const Icon(Icons.home_work_outlined, color: _green, size: 22),
@@ -950,7 +950,7 @@ class _CitizenHomeScreenState extends State<CitizenHomeScreen> {
         borderRadius: BorderRadius.circular(16),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.05),
+            color: Colors.black.withValues(alpha: 0.05),
             blurRadius: 10,
             offset: const Offset(0, 2),
           ),
@@ -964,7 +964,7 @@ class _CitizenHomeScreenState extends State<CitizenHomeScreen> {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
       decoration: BoxDecoration(
-        color: color.withOpacity(0.1),
+        color: color.withValues(alpha: 0.1),
         borderRadius: BorderRadius.circular(20),
       ),
       child: Text(
@@ -988,7 +988,7 @@ class _CitizenHomeScreenState extends State<CitizenHomeScreen> {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
       decoration: BoxDecoration(
-        color: color.withOpacity(0.1),
+        color: color.withValues(alpha: 0.1),
         borderRadius: BorderRadius.circular(20),
       ),
       child: Text(
@@ -1014,7 +1014,7 @@ class _CitizenHomeScreenState extends State<CitizenHomeScreen> {
           width: 44,
           height: 44,
           decoration: BoxDecoration(
-            color: iconColor.withOpacity(0.08),
+            color: iconColor.withValues(alpha: 0.08),
             borderRadius: BorderRadius.circular(12),
           ),
           child: Icon(icon, color: iconColor, size: 22),

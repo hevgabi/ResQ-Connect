@@ -1,20 +1,39 @@
 import 'package:flutter/material.dart';
 
+import '../screens/rescuer/mission_queue_screen.dart';
+import '../screens/rescuer/rescuer_map_screen.dart';
+import '../screens/rescuer/mission_history_screen.dart';
+import '../screens/rescuer/rescuer_profile_screen.dart';
+
 class RescuerBottomNav extends StatelessWidget {
   final int currentIndex;
-  final ValueChanged<int> onTap;
+  final ValueChanged<int>? onTap;
 
   const RescuerBottomNav({
     super.key,
     required this.currentIndex,
-    required this.onTap,
+    this.onTap,
   });
+
+  void _defaultOnTap(BuildContext context, int index) {
+    if (index == currentIndex) return;
+    final screens = [
+      const MissionQueueScreen(),
+      const RescuerMapScreen(),
+      const MissionHistoryScreen(),
+      const RescuerProfileScreen(),
+    ];
+    Navigator.pushReplacement(
+      context,
+      MaterialPageRoute(builder: (_) => screens[index]),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
     return BottomNavigationBar(
       currentIndex: currentIndex,
-      onTap: onTap,
+      onTap: (i) => onTap != null ? onTap!(i) : _defaultOnTap(context, i),
       type: BottomNavigationBarType.fixed,
       backgroundColor: Colors.white,
       selectedItemColor: const Color(0xFF1FAA59),

@@ -1,20 +1,41 @@
 import 'package:flutter/material.dart';
 
+import '../screens/citizen/citizen_home_screen.dart';
+import '../screens/citizen/live_map_screen.dart';
+import '../screens/citizen/sos_trigger_screen.dart';
+import '../screens/citizen/alerts_screen.dart';
+import '../screens/citizen/citizen_profile_screen.dart';
+
 class AppBottomNav extends StatelessWidget {
   final int currentIndex;
-  final ValueChanged<int> onTap;
+  final ValueChanged<int>? onTap;
 
   const AppBottomNav({
     super.key,
     required this.currentIndex,
-    required this.onTap,
+    this.onTap,
   });
+
+  void _defaultOnTap(BuildContext context, int index) {
+    if (index == currentIndex) return;
+    final screens = [
+      const CitizenHomeScreen(),
+      const LiveMapScreen(),
+      const SosTriggerScreen(),
+      const AlertsScreen(),
+      const CitizenProfileScreen(),
+    ];
+    Navigator.pushReplacement(
+      context,
+      MaterialPageRoute(builder: (_) => screens[index]),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
     return BottomNavigationBar(
       currentIndex: currentIndex,
-      onTap: onTap,
+      onTap: (i) => onTap != null ? onTap!(i) : _defaultOnTap(context, i),
       type: BottomNavigationBarType.fixed,
       backgroundColor: Colors.white,
       selectedItemColor: const Color(0xFF0D47A1),

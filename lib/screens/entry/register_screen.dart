@@ -152,7 +152,7 @@ class _RegisterScreenState extends State<RegisterScreen>
 
       // 5. AuthProvider auto-routes via StreamBuilder in main app
       if (mounted) {
-        context.read<AppAuthProvider>().refreshUser();
+        context.read<AuthProvider>().refreshRole();
       }
     } on FirebaseAuthException catch (e) {
       if (mounted) _showAuthError(e);
@@ -372,7 +372,7 @@ class _RegisterScreenState extends State<RegisterScreen>
             child: Container(
               padding: const EdgeInsets.all(8),
               decoration: BoxDecoration(
-                color: Colors.white.withOpacity(0.15),
+                color: Colors.white.withValues(alpha: 0.15),
                 borderRadius: BorderRadius.circular(10),
               ),
               child: const Icon(
@@ -391,7 +391,7 @@ class _RegisterScreenState extends State<RegisterScreen>
                 width: 44,
                 height: 44,
                 decoration: BoxDecoration(
-                  color: Colors.white.withOpacity(0.2),
+                  color: Colors.white.withValues(alpha: 0.2),
                   borderRadius: BorderRadius.circular(12),
                 ),
                 child: const Icon(
@@ -551,7 +551,7 @@ class _RegisterScreenState extends State<RegisterScreen>
         duration: const Duration(milliseconds: 200),
         padding: const EdgeInsets.symmetric(vertical: 16),
         decoration: BoxDecoration(
-          color: isSelected ? color.withOpacity(0.08) : Colors.white,
+          color: isSelected ? color.withValues(alpha: 0.08) : Colors.white,
           borderRadius: BorderRadius.circular(14),
           border: Border.all(
             color: isSelected ? color : const Color(0xFFDDE3EA),
@@ -560,7 +560,7 @@ class _RegisterScreenState extends State<RegisterScreen>
           boxShadow: isSelected
               ? [
                   BoxShadow(
-                    color: color.withOpacity(0.15),
+                    color: color.withValues(alpha: 0.15),
                     blurRadius: 12,
                     offset: const Offset(0, 4),
                   ),
@@ -597,7 +597,7 @@ class _RegisterScreenState extends State<RegisterScreen>
                 'NDRRMC / LGU',
                 style: TextStyle(
                   fontSize: 10,
-                  color: isSelected ? color.withOpacity(0.7) : _textSecondary,
+                  color: isSelected ? color.withValues(alpha: 0.7) : _textSecondary,
                   letterSpacing: 0.3,
                 ),
               ),
@@ -648,7 +648,7 @@ class _RegisterScreenState extends State<RegisterScreen>
                   Container(
                     padding: const EdgeInsets.all(10),
                     decoration: BoxDecoration(
-                      color: _primaryBlue.withOpacity(0.08),
+                      color: _primaryBlue.withValues(alpha: 0.08),
                       shape: BoxShape.circle,
                     ),
                     child: const Icon(
@@ -670,7 +670,7 @@ class _RegisterScreenState extends State<RegisterScreen>
                   Text(
                     'UMID, PhilSys, Driver\'s License, Passport',
                     style: TextStyle(
-                      color: _textSecondary.withOpacity(0.8),
+                      color: _textSecondary.withValues(alpha: 0.8),
                       fontSize: 11,
                     ),
                   ),
@@ -693,7 +693,7 @@ class _RegisterScreenState extends State<RegisterScreen>
             border: Border.all(color: _successGreen, width: 2),
             boxShadow: [
               BoxShadow(
-                color: _successGreen.withOpacity(0.15),
+                color: _successGreen.withValues(alpha: 0.15),
                 blurRadius: 12,
                 offset: const Offset(0, 4),
               ),
@@ -789,7 +789,7 @@ class _RegisterScreenState extends State<RegisterScreen>
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(14),
               ),
-              shadowColor: _primaryBlue.withOpacity(0.4),
+              shadowColor: _primaryBlue.withValues(alpha: 0.4),
             ).copyWith(
               elevation: WidgetStateProperty.resolveWith((states) {
                 if (states.contains(WidgetState.pressed)) return 0;

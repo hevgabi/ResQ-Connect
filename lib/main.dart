@@ -11,10 +11,10 @@ import 'screens/entry/splash_screen.dart';
 import 'screens/entry/login_screen.dart';
 
 // ── Role dashboards ───────────────────────────────────────────────────────────
-import 'screens/citizen/home_screen.dart';
+import 'screens/citizen/citizen_home_screen.dart';
 import 'screens/rescuer/mission_queue_screen.dart';
-import 'screens/moderator/report_queue_screen.dart';
-import 'screens/admin/overview_screen.dart';
+import 'screens/moderator/moderator_report_queue_screen.dart';
+import 'screens/admin/admin_overview_screen.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -112,7 +112,7 @@ class _RoleResolvingScreenState extends State<_RoleResolvingScreen> {
               width: 72,
               height: 72,
               decoration: BoxDecoration(
-                color: AppTheme.primaryBlue.withOpacity(0.1),
+                color: AppTheme.primaryBlue.withValues(alpha: 0.1),
                 borderRadius: BorderRadius.circular(20),
               ),
               child: const Icon(

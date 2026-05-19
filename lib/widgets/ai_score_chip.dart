@@ -56,7 +56,7 @@ class AiScoreChip extends StatelessWidget {
         borderRadius: BorderRadius.circular(20),
         boxShadow: [
           BoxShadow(
-            color: style.background.withOpacity(0.3),
+            color: style.background.withValues(alpha: 0.3),
             blurRadius: 6,
             offset: const Offset(0, 2),
           ),

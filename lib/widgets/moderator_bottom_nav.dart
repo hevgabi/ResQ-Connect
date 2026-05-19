@@ -1,20 +1,35 @@
 import 'package:flutter/material.dart';
 
+import '../screens/moderator/moderator_report_queue_screen.dart';
+import '../screens/moderator/moderator_published_feed_screen.dart';
+
 class ModeratorBottomNav extends StatelessWidget {
   final int currentIndex;
-  final ValueChanged<int> onTap;
+  final ValueChanged<int>? onTap;
 
   const ModeratorBottomNav({
     super.key,
     required this.currentIndex,
-    required this.onTap,
+    this.onTap,
   });
+
+  void _defaultOnTap(BuildContext context, int index) {
+    if (index == currentIndex) return;
+    final screens = [
+      const ModeratorReportQueueScreen(),
+      const ModeratorPublishedFeedScreen(),
+    ];
+    Navigator.pushReplacement(
+      context,
+      MaterialPageRoute(builder: (_) => screens[index]),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
     return BottomNavigationBar(
       currentIndex: currentIndex,
-      onTap: onTap,
+      onTap: (i) => onTap != null ? onTap!(i) : _defaultOnTap(context, i),
       type: BottomNavigationBarType.fixed,
       backgroundColor: Colors.white,
       selectedItemColor: const Color(0xFF6A1B9A),
