@@ -1,1 +1,32 @@
-{"flutter":{"platforms":{"android":{"default":{"projectId":"resqconnect-prod","appId":"1:150336899991:android:d9d3e6f79890c690f512d2","fileOutput":"android/app/google-services.json"}},"dart":{"lib/firebase_options.dart":{"projectId":"resqconnect-prod","configurations":{"android":"1:150336899991:android:d9d3e6f79890c690f512d2","ios":"1:150336899991:ios:f309623f2f1949d2f512d2","macos":"1:150336899991:ios:f309623f2f1949d2f512d2","web":"1:150336899991:web:1552b3dcc56f7ed2f512d2","windows":"1:150336899991:web:fce1da7878e13de1f512d2"}}}}}}
+{
+  "flutter": {
+    "platforms": {
+      "android": {
+        "default": {
+          "projectId": "resqconnect-prod",
+          "appId": "1:150336899991:android:d9d3e6f79890c690f512d2",
+          "fileOutput": "android/app/google-services.json"
+        }
+      },
+      "dart": {
+        "lib/firebase_options.dart": {
+          "projectId": "resqconnect-prod",
+          "configurations": {
+            "android": "1:150336899991:android:d9d3e6f79890c690f512d2",
+            "ios": "1:150336899991:ios:f309623f2f1949d2f512d2",
+            "macos": "1:150336899991:ios:f309623f2f1949d2f512d2",
+            "web": "1:150336899991:web:1552b3dcc56f7ed2f512d2",
+            "windows": "1:150336899991:web:fce1da7878e13de1f512d2"
+          }
+        }
+      }
+    }
+  },
+  "firestore": {
+    "rules": "firestore.rules",
+    "indexes": "firestore.indexes.json"
+  },
+  "storage": {
+    "rules": "storage.rules"
+  }
+}

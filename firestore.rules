@@ -1,0 +1,196 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ─────────────────────────────────────────────
+    // HELPER FUNCTIONS
+    // ─────────────────────────────────────────────
+
+    /// Returns true if the request carries a valid Firebase Auth token.
+    function isAuth() {
+      return request.auth != null;
+    }
+
+    /// Fetches the calling user's role from their users doc.
+    /// Costs 1 read per rule evaluation — used sparingly.
+    function getRole() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role;
+    }
+
+    function isAdmin() {
+      return isAuth() && getRole() == 'admin';
+    }
+
+    function isModerator() {
+      return isAuth() && getRole() == 'moderator';
+    }
+
+    function isRescuer() {
+      return isAuth() && getRole() == 'rescuer';
+    }
+
+    function isCitizen() {
+      return isAuth() && getRole() == 'citizen';
+    }
+
+    /// True when the caller owns the document (uid field == auth uid).
+    function isOwner(ownerField) {
+      return isAuth() && resource.data[ownerField] == request.auth.uid;
+    }
+
+    // ─────────────────────────────────────────────
+    // users/{uid}
+    // ─────────────────────────────────────────────
+    match /users/{uid} {
+
+      // Any authenticated user may read their own profile.
+      allow read: if isAuth() && request.auth.uid == uid;
+
+      // Users may update their own doc, but CANNOT touch role or is_active.
+      allow update: if isAuth()
+        && request.auth.uid == uid
+        && !('role'      in request.resource.data.diff(resource.data).affectedKeys())
+        && !('is_active' in request.resource.data.diff(resource.data).affectedKeys());
+
+      // Admins have full read/write access to all user documents.
+      allow read, write: if isAdmin();
+    }
+
+    // ─────────────────────────────────────────────
+    // rescuers/{rescuerId}
+    // ─────────────────────────────────────────────
+    match /rescuers/{rescuerId} {
+
+      // Citizens may read any rescuer doc (supports live tracking in the app).
+      allow read: if isAuth() && (isCitizen() || isRescuer() || isAdmin());
+
+      // A rescuer may update only their own document.
+      // Writable fields: is_on_duty, lat, lng, active_mission_count.
+      allow update: if isRescuer()
+        && request.auth.uid == rescuerId
+        && request.resource.data.diff(resource.data).affectedKeys()
+            .hasOnly(['is_on_duty', 'lat', 'lng', 'active_mission_count']);
+
+      // Admins have full read/write access.
+      allow read, write: if isAdmin();
+    }
+
+    // ─────────────────────────────────────────────
+    // sos_requests/{sosId}
+    // ─────────────────────────────────────────────
+    match /sos_requests/{sosId} {
+
+      // Citizens may create an SOS only for themselves.
+      allow create: if isAuth()
+        && isCitizen()
+        && request.resource.data.citizen_id == request.auth.uid;
+
+      // Citizens may read their own SOS requests.
+      allow read: if isAuth()
+        && isCitizen()
+        && resource.data.citizen_id == request.auth.uid;
+
+      // Rescuers may read all SOS requests and update
+      // the status and assigned_rescuer_id fields only.
+      allow read: if isRescuer();
+      allow update: if isRescuer()
+        && request.resource.data.diff(resource.data).affectedKeys()
+            .hasOnly(['status', 'assigned_rescuer_id']);
+
+      // Admins have full read/write access.
+      allow read, write: if isAdmin();
+    }
+
+    // ─────────────────────────────────────────────
+    // missions/{missionId}
+    // ─────────────────────────────────────────────
+    match /missions/{missionId} {
+
+      // Rescuers may create missions for themselves.
+      allow create: if isRescuer()
+        && request.resource.data.rescuer_id == request.auth.uid;
+
+      // Rescuers may update their own missions.
+      allow update: if isRescuer()
+        && resource.data.rescuer_id == request.auth.uid;
+
+      // Rescuers may also read their own missions.
+      allow read: if isRescuer()
+        && resource.data.rescuer_id == request.auth.uid;
+
+      // Citizens may read a mission only when the linked SOS belongs to them.
+      // We resolve the parent SOS document to check citizen_id.
+      allow read: if isAuth()
+        && isCitizen()
+        && get(/databases/$(database)/documents/sos_requests/$(resource.data.sos_id))
+              .data.citizen_id == request.auth.uid;
+
+      // Admins have full read/write access.
+      allow read, write: if isAdmin();
+    }
+
+    // ─────────────────────────────────────────────
+    // reports/{reportId}
+    // ─────────────────────────────────────────────
+    match /reports/{reportId} {
+
+      // Citizens may create a report only for themselves.
+      allow create: if isAuth()
+        && isCitizen()
+        && request.resource.data.author_id == request.auth.uid;
+
+      // Citizens may read only their own reports.
+      allow read: if isAuth()
+        && isCitizen()
+        && resource.data.author_id == request.auth.uid;
+
+      // Moderators may read all reports and update
+      // the moderation fields only.
+      allow read: if isModerator();
+      allow update: if isModerator()
+        && request.resource.data.diff(resource.data).affectedKeys()
+            .hasOnly(['status', 'reviewed_by', 'rejection_reason']);
+
+      // Admins have full read/write access.
+      allow read, write: if isAdmin();
+    }
+
+    // ─────────────────────────────────────────────
+    // community_feed/{feedId}
+    // ─────────────────────────────────────────────
+    match /community_feed/{feedId} {
+
+      // All authenticated users can read the community feed.
+      allow read: if isAuth();
+
+      // Only moderators and admins may write (publish/remove entries).
+      allow write: if isModerator() || isAdmin();
+    }
+
+    // ─────────────────────────────────────────────
+    // evacuation_centers/{centerId}
+    // ─────────────────────────────────────────────
+    match /evacuation_centers/{centerId} {
+
+      // All authenticated users can read evacuation center data.
+      allow read: if isAuth();
+
+      // Only admins may create, update, or delete evacuation centers.
+      allow write: if isAdmin();
+    }
+
+    // ─────────────────────────────────────────────
+    // alerts/{alertId}
+    // ─────────────────────────────────────────────
+    match /alerts/{alertId} {
+
+      // All authenticated users can read alerts.
+      allow read: if isAuth();
+
+      // Only admins may create, update, or delete alerts.
+      allow write: if isAdmin();
+    }
+
+  }
+}

@@ -1,0 +1,93 @@
+rules_version = '2';
+
+service firebase.storage {
+  match /b/{bucket}/o {
+
+    // ─────────────────────────────────────────────
+    // HELPER FUNCTIONS
+    // ─────────────────────────────────────────────
+
+    /// Returns true if the request carries a valid Firebase Auth token.
+    function isAuth() {
+      return request.auth != null;
+    }
+
+    /// Returns true if the caller owns the storage path (userId segment == auth uid).
+    function isOwner(userId) {
+      return isAuth() && request.auth.uid == userId;
+    }
+
+    /// Checks that the uploaded file does not exceed a given size in bytes.
+    function maxSize(bytes) {
+      return request.resource.size <= bytes;
+    }
+
+    /// Checks that the uploaded file's content type matches a given prefix or exact type.
+    function isContentType(type) {
+      return request.resource.contentType.matches(type);
+    }
+
+    // ─────────────────────────────────────────────
+    // profile_photos/{userId}/{fileName}
+    // Stores user avatar / profile pictures.
+    // ─────────────────────────────────────────────
+    match /profile_photos/{userId}/{fileName} {
+
+      // All authenticated users can view any profile photo (e.g. rescuer cards, citizen profiles).
+      allow read: if isAuth();
+
+      // Owner can upload their own photo.
+      // Constraints: max 5 MB, JPEG / PNG / WebP only.
+      allow write: if isOwner(userId)
+        && maxSize(5 * 1024 * 1024)
+        && (
+          isContentType('image/jpeg') ||
+          isContentType('image/png')  ||
+          isContentType('image/webp')
+        );
+    }
+
+    // ─────────────────────────────────────────────
+    // gov_ids/{userId}/{fileName}
+    // Stores government-issued ID uploads for identity verification.
+    // Treated as sensitive — owner-only access.
+    // ─────────────────────────────────────────────
+    match /gov_ids/{userId}/{fileName} {
+
+      // Only the document owner can read their own gov ID.
+      allow read: if isOwner(userId);
+
+      // Owner can upload their own gov ID.
+      // Constraints: max 10 MB, JPEG / PNG / WebP only.
+      allow write: if isOwner(userId)
+        && maxSize(10 * 1024 * 1024)
+        && (
+          isContentType('image/jpeg') ||
+          isContentType('image/png')  ||
+          isContentType('image/webp')
+        );
+    }
+
+    // ─────────────────────────────────────────────
+    // reports/{userId}/{fileName}
+    // Stores media attachments for disaster reports (photos + videos).
+    // Readable by all authenticated users so moderators can review.
+    // ─────────────────────────────────────────────
+    match /reports/{userId}/{fileName} {
+
+      // All authenticated users can read report media
+      // (required for moderator review and community feed display).
+      allow read: if isAuth();
+
+      // Owner can upload media for their own report.
+      // Constraints: max 50 MB, any image/* or video/* content type.
+      allow write: if isOwner(userId)
+        && maxSize(50 * 1024 * 1024)
+        && (
+          isContentType('image/.*') ||
+          isContentType('video/.*')
+        );
+    }
+
+  }
+}

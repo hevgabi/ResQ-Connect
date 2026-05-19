@@ -64,7 +64,8 @@ class DefaultFirebaseOptions {
     messagingSenderId: '150336899991',
     projectId: 'resqconnect-prod',
     storageBucket: 'resqconnect-prod.firebasestorage.app',
-    iosClientId: '150336899991-2heua5h669kiuaqqfh8lov7ll6l5fptf.apps.googleusercontent.com',
+    iosClientId:
+        '150336899991-2heua5h669kiuaqqfh8lov7ll6l5fptf.apps.googleusercontent.com',
     iosBundleId: 'com.example.resqConnect',
   );
 
@@ -74,7 +75,8 @@ class DefaultFirebaseOptions {
     messagingSenderId: '150336899991',
     projectId: 'resqconnect-prod',
     storageBucket: 'resqconnect-prod.firebasestorage.app',
-    iosClientId: '150336899991-2heua5h669kiuaqqfh8lov7ll6l5fptf.apps.googleusercontent.com',
+    iosClientId:
+        '150336899991-2heua5h669kiuaqqfh8lov7ll6l5fptf.apps.googleusercontent.com',
     iosBundleId: 'com.example.resqConnect',
   );
 
