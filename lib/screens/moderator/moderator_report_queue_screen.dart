@@ -11,6 +11,7 @@ import '../../widgets/moderator_bottom_nav.dart';
 import '../../widgets/ai_score_chip.dart';
 import '../../widgets/error_banner.dart';
 import '../../widgets/empty_state.dart';
+import '../settings/settings_screen.dart';
 import 'moderator_review_detail_screen.dart';
 
 class ModeratorReportQueueScreen extends StatelessWidget {
@@ -65,6 +66,19 @@ class ModeratorReportQueueScreen extends StatelessWidget {
                 floating: true,
                 snap: true,
                 elevation: 2,
+                actions: [
+                  IconButton(
+                    icon: const Icon(
+                      Icons.settings_outlined,
+                      color: Colors.white,
+                    ),
+                    tooltip: 'Settings',
+                    onPressed: () => Navigator.push(
+                      context,
+                      MaterialPageRoute(builder: (_) => const SettingsScreen()),
+                    ),
+                  ),
+                ],
               ),
             ],
             body: _buildBody(context, snapshot),

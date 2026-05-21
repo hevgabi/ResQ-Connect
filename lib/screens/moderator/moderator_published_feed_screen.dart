@@ -9,6 +9,7 @@ import '../../services/firestore_service.dart';
 import '../../widgets/moderator_bottom_nav.dart';
 import '../../widgets/error_banner.dart';
 import '../../widgets/empty_state.dart';
+import '../settings/settings_screen.dart';
 
 // TANDAAN: Kung may ginawa kang ReportModel class, siguraduhing i-import mo rito kung kinakailangan.
 // halimbawa: import '../../models/report_model.dart';
@@ -32,6 +33,16 @@ class ModeratorPublishedFeedScreen extends StatelessWidget {
               fontSize: 20,
             ),
           ),
+          actions: [
+            IconButton(
+              icon: const Icon(Icons.settings_outlined, color: Colors.white),
+              tooltip: 'Settings',
+              onPressed: () => Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => const SettingsScreen()),
+              ),
+            ),
+          ],
           bottom: const TabBar(
             labelColor: Colors.white,
             unselectedLabelColor: Colors.white54,

@@ -12,7 +12,7 @@ import '../../services/firestore_service.dart';
 import '../../services/location_service.dart';
 import '../../theme/app_theme.dart';
 
-const String _apiKey = 'YOUR_API_KEY';
+const String _apiKey = 'AIzaSyCOooBNKqe-MshDk11ADPQQDK7k90W5Sl4';
 
 class ActiveNavigationScreen extends StatefulWidget {
   final String missionId;

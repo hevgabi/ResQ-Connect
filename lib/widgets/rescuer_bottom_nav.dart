@@ -9,11 +9,7 @@ class RescuerBottomNav extends StatelessWidget {
   final int currentIndex;
   final ValueChanged<int>? onTap;
 
-  const RescuerBottomNav({
-    super.key,
-    required this.currentIndex,
-    this.onTap,
-  });
+  const RescuerBottomNav({super.key, required this.currentIndex, this.onTap});
 
   void _defaultOnTap(BuildContext context, int index) {
     if (index == currentIndex) return;
@@ -23,9 +19,11 @@ class RescuerBottomNav extends StatelessWidget {
       const MissionHistoryScreen(),
       const RescuerProfileScreen(),
     ];
-    Navigator.pushReplacement(
+    Navigator.pushAndRemoveUntil(
       context,
       MaterialPageRoute(builder: (_) => screens[index]),
+      (route) =>
+          false, // clear stack so _RootRouter can regain control on logout
     );
   }
 

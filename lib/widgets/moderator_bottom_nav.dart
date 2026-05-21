@@ -7,11 +7,7 @@ class ModeratorBottomNav extends StatelessWidget {
   final int currentIndex;
   final ValueChanged<int>? onTap;
 
-  const ModeratorBottomNav({
-    super.key,
-    required this.currentIndex,
-    this.onTap,
-  });
+  const ModeratorBottomNav({super.key, required this.currentIndex, this.onTap});
 
   void _defaultOnTap(BuildContext context, int index) {
     if (index == currentIndex) return;
@@ -19,9 +15,11 @@ class ModeratorBottomNav extends StatelessWidget {
       const ModeratorReportQueueScreen(),
       const ModeratorPublishedFeedScreen(),
     ];
-    Navigator.pushReplacement(
+    Navigator.pushAndRemoveUntil(
       context,
       MaterialPageRoute(builder: (_) => screens[index]),
+      (route) =>
+          false, // clear stack so _RootRouter can regain control on logout
     );
   }
 

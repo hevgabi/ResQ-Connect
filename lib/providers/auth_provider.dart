@@ -68,17 +68,16 @@ class AuthProvider extends ChangeNotifier {
 
   // ── Public methods ────────────────────────────────────────────────────────────
 
-  /// Signs the current user out and clears local state.
+  /// FIXED: Signs the current user out without triggering the global loading screen.
+  /// This prevents the navigation conflict in _RootRouter.
   Future<void> logout() async {
-    _isLoading = true;
-    notifyListeners();
-
     try {
+      // Direkta nang mag-sign out. Ang _onAuthStateChanged(null) ang bahalang mag-clear
+      // ng local state at mag-trigger ng auto-navigate papuntang LoginScreen.
       await _auth.signOut();
     } catch (e) {
       debugPrint('AuthProvider: sign-out error — $e');
     }
-    // _onAuthStateChanged(null) will fire automatically and clear state.
   }
 
   /// Re-reads users/{uid}.role from Firestore without re-authenticating.

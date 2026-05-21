@@ -6,6 +6,7 @@ import '../../services/firestore_service.dart';
 import '../../theme/app_theme.dart';
 import '../../widgets/rescuer_bottom_nav.dart';
 import '../../widgets/loading_overlay.dart';
+import '../settings/settings_screen.dart';
 
 class RescuerProfileScreen extends StatefulWidget {
   const RescuerProfileScreen({super.key});
@@ -153,6 +154,16 @@ class _RescuerProfileScreenState extends State<RescuerProfileScreen> {
             style: TextStyle(fontWeight: FontWeight.bold),
           ),
           elevation: 0,
+          actions: [
+            IconButton(
+              icon: const Icon(Icons.settings_outlined, color: Colors.white),
+              tooltip: 'Settings',
+              onPressed: () => Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => const SettingsScreen()),
+              ),
+            ),
+          ],
         ),
         body: SingleChildScrollView(
           padding: const EdgeInsets.all(16),
