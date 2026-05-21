@@ -4,6 +4,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 
 import '../../providers/auth_provider.dart';
+import '../../main.dart' show RootRouter;
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -120,7 +121,15 @@ class _LoginScreenState extends State<LoginScreen>
         email: _emailController.text.trim(),
         password: _passwordController.text,
       );
-      // AuthProvider listener + main.dart routing takes over automatically.
+      // Replace the entire stack with RootRouter so it can route to the
+      // correct home screen based on the user's role. This handles both
+      // normal login and login-after-logout correctly.
+      if (mounted) {
+        Navigator.of(context).pushAndRemoveUntil(
+          MaterialPageRoute(builder: (_) => const RootRouter()),
+          (route) => false,
+        );
+      }
     } on FirebaseAuthException catch (e) {
       _showSnackBar(_friendlyError(e));
     } catch (_) {
@@ -145,7 +154,13 @@ class _LoginScreenState extends State<LoginScreen>
         idToken: googleAuth.idToken,
       );
       await FirebaseAuth.instance.signInWithCredential(credential);
-      // AuthProvider listener + main.dart routing takes over automatically.
+      // Replace the entire stack with RootRouter (same reason as email login).
+      if (mounted) {
+        Navigator.of(context).pushAndRemoveUntil(
+          MaterialPageRoute(builder: (_) => const RootRouter()),
+          (route) => false,
+        );
+      }
     } on FirebaseAuthException catch (e) {
       _showSnackBar(_friendlyError(e));
     } catch (_) {
@@ -494,7 +509,9 @@ class _SignInButton extends StatelessWidget {
         style: ElevatedButton.styleFrom(
           backgroundColor: const Color(0xFF0D47A1),
           foregroundColor: Colors.white,
-          disabledBackgroundColor: const Color(0xFF0D47A1).withValues(alpha: 0.5),
+          disabledBackgroundColor: const Color(
+            0xFF0D47A1,
+          ).withValues(alpha: 0.5),
           elevation: 0,
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(14),

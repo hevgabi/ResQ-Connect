@@ -35,7 +35,7 @@ class ResQConnectApp extends StatelessWidget {
         title: 'ResQConnect',
         debugShowCheckedModeBanner: false,
         theme: AppTheme.lightTheme,
-        home: const _RootRouter(),
+        home: const RootRouter(),
       ),
     );
   }
@@ -43,8 +43,8 @@ class ResQConnectApp extends StatelessWidget {
 
 /// Listens to [AuthProvider] and routes the user to the correct screen
 /// based on their authentication state and Firestore role.
-class _RootRouter extends StatelessWidget {
-  const _RootRouter();
+class RootRouter extends StatelessWidget {
+  const RootRouter();
 
   @override
   Widget build(BuildContext context) {

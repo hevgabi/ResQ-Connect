@@ -39,9 +39,15 @@ class AuthProvider extends ChangeNotifier {
       return;
     }
 
-    // Logged in — fetch role from Firestore
-    _isLoading = true;
-    notifyListeners();
+    // Logged in — fetch role from Firestore.
+    // Only show the loading/splash screen when this is a cold start
+    // (no user was previously resolved). This prevents the splash from
+    // flashing during a logout attempt that briefly re-triggers the
+    // auth state stream before settling on null.
+    if (_user == null) {
+      _isLoading = true;
+      notifyListeners();
+    }
 
     _user = firebaseUser;
     await _fetchRole(firebaseUser.uid);

@@ -1,5 +1,8 @@
+import 'dart:async';
+
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -7,139 +10,165 @@ import '../../models/user_model.dart';
 import '../../providers/auth_provider.dart' as app_auth;
 import '../../services/firestore_service.dart';
 import '../../theme/app_theme.dart';
+import '../entry/login_screen.dart';
 
-class SettingsScreen extends StatelessWidget {
+class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
 
   @override
-  Widget build(BuildContext context) {
+  State<SettingsScreen> createState() => _SettingsScreenState();
+}
+
+class _SettingsScreenState extends State<SettingsScreen> {
+  StreamSubscription<UserModel?>? _userSub;
+  UserModel? _user;
+
+  @override
+  void initState() {
+    super.initState();
     final uid = FirebaseAuth.instance.currentUser?.uid;
-    if (uid == null) {
-      return const Scaffold(body: Center(child: Text('Not logged in')));
+    if (uid != null) {
+      _userSub = FirestoreService.instance
+          .userStream(uid)
+          .listen(
+            (user) {
+              if (mounted) setState(() => _user = user);
+            },
+            onError: (e) {
+              // PERMISSION_DENIED fires after logout — cancel and pop immediately
+              debugPrint('SettingsScreen userStream error (post-logout): $e');
+              _userSub?.cancel();
+              if (mounted) Navigator.of(context).pop();
+            },
+          );
     }
+  }
 
-    return StreamBuilder<UserModel?>(
-      stream: FirestoreService.instance.userStream(uid),
-      builder: (context, snapshot) {
-        final user = snapshot.data;
-        return Scaffold(
-          backgroundColor: AppTheme.background,
-          appBar: AppBar(
-            backgroundColor: AppTheme.primaryBlue,
-            foregroundColor: Colors.white,
-            title: const Text(
-              'Settings',
-              style: TextStyle(fontWeight: FontWeight.bold),
-            ),
-            elevation: 0,
+  @override
+  void dispose() {
+    _userSub?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final user = _user;
+    return Scaffold(
+      backgroundColor: AppTheme.background,
+      appBar: AppBar(
+        backgroundColor: AppTheme.primaryBlue,
+        foregroundColor: Colors.white,
+        title: const Text(
+          'Settings',
+          style: TextStyle(fontWeight: FontWeight.bold),
+        ),
+        elevation: 0,
+      ),
+      body: ListView(
+        children: [
+          // ── Profile Header Card ──────────────────────────────────────
+          _ProfileHeaderTile(user: user),
+
+          const SizedBox(height: 8),
+
+          // ── Account Section ──────────────────────────────────────────
+          _SectionHeader(title: 'Account'),
+          _SettingsTile(
+            icon: Icons.person_outline,
+            iconColor: AppTheme.primaryBlue,
+            title: 'Personal Information',
+            subtitle: 'Name, phone number',
+            onTap: () => _showComingSoon(context),
           ),
-          body: ListView(
-            children: [
-              // ── Profile Header Card ──────────────────────────────────────
-              _ProfileHeaderTile(user: user),
-
-              const SizedBox(height: 8),
-
-              // ── Account Section ──────────────────────────────────────────
-              _SectionHeader(title: 'Account'),
-              _SettingsTile(
-                icon: Icons.person_outline,
-                iconColor: AppTheme.primaryBlue,
-                title: 'Personal Information',
-                subtitle: 'Name, phone number',
-                onTap: () => _showComingSoon(context),
-              ),
-              _SettingsTile(
-                icon: Icons.email_outlined,
-                iconColor: AppTheme.primaryBlue,
-                title: 'Email Address',
-                subtitle: user?.email ?? '—',
-                onTap: () => _showComingSoon(context),
-              ),
-              _SettingsTile(
-                icon: Icons.lock_outline,
-                iconColor: AppTheme.primaryBlue,
-                title: 'Change Password',
-                subtitle: 'Update your password',
-                onTap: () => _showChangePasswordDialog(context),
-              ),
-
-              const SizedBox(height: 8),
-
-              // ── Notifications Section ────────────────────────────────────
-              _SectionHeader(title: 'Notifications'),
-              _SettingsSwitchTile(
-                icon: Icons.notifications_outlined,
-                iconColor: const Color(0xFFE65100),
-                title: 'Push Notifications',
-                subtitle: 'Alerts, updates, and messages',
-                initialValue: true,
-              ),
-              _SettingsSwitchTile(
-                icon: Icons.campaign_outlined,
-                iconColor: const Color(0xFFE65100),
-                title: 'Emergency Alerts',
-                subtitle: 'SOS and critical notifications',
-                initialValue: true,
-              ),
-
-              const SizedBox(height: 8),
-
-              // ── Privacy & Security Section ───────────────────────────────
-              _SectionHeader(title: 'Privacy & Security'),
-              _SettingsTile(
-                icon: Icons.shield_outlined,
-                iconColor: const Color(0xFF1B5E20),
-                title: 'Privacy Settings',
-                subtitle: 'Manage your data and visibility',
-                onTap: () => _showComingSoon(context),
-              ),
-              _SettingsTile(
-                icon: Icons.location_on_outlined,
-                iconColor: const Color(0xFF1B5E20),
-                title: 'Location Access',
-                subtitle: 'Control when the app uses your location',
-                onTap: () => _showComingSoon(context),
-              ),
-
-              const SizedBox(height: 8),
-
-              // ── Support Section ──────────────────────────────────────────
-              _SectionHeader(title: 'Help & Support'),
-              _SettingsTile(
-                icon: Icons.help_outline,
-                iconColor: AppTheme.textSecondary,
-                title: 'Help Center',
-                subtitle: 'FAQs and support articles',
-                onTap: () => _showComingSoon(context),
-              ),
-              _SettingsTile(
-                icon: Icons.info_outline,
-                iconColor: AppTheme.textSecondary,
-                title: 'About ResQConnect',
-                subtitle: 'Version, terms, and licenses',
-                onTap: () => _showAboutDialog(context),
-              ),
-
-              const SizedBox(height: 8),
-
-              // ── Logout ───────────────────────────────────────────────────
-              _SectionHeader(title: 'Account Actions'),
-              _SettingsTile(
-                icon: Icons.logout,
-                iconColor: AppTheme.dangerRed,
-                title: 'Log Out',
-                subtitle: 'Sign out of your account',
-                titleColor: AppTheme.dangerRed,
-                showChevron: false,
-                onTap: () => _showLogoutDialog(context),
-              ),
-
-              const SizedBox(height: 32),
-            ],
+          _SettingsTile(
+            icon: Icons.email_outlined,
+            iconColor: AppTheme.primaryBlue,
+            title: 'Email Address',
+            subtitle: user?.email ?? '—',
+            onTap: () => _showComingSoon(context),
           ),
-        );
-      },
+          _SettingsTile(
+            icon: Icons.lock_outline,
+            iconColor: AppTheme.primaryBlue,
+            title: 'Change Password',
+            subtitle: 'Update your password',
+            onTap: () => _showChangePasswordDialog(context),
+          ),
+
+          const SizedBox(height: 8),
+
+          // ── Notifications Section ────────────────────────────────────
+          _SectionHeader(title: 'Notifications'),
+          _SettingsSwitchTile(
+            icon: Icons.notifications_outlined,
+            iconColor: const Color(0xFFE65100),
+            title: 'Push Notifications',
+            subtitle: 'Alerts, updates, and messages',
+            initialValue: true,
+          ),
+          _SettingsSwitchTile(
+            icon: Icons.campaign_outlined,
+            iconColor: const Color(0xFFE65100),
+            title: 'Emergency Alerts',
+            subtitle: 'SOS and critical notifications',
+            initialValue: true,
+          ),
+
+          const SizedBox(height: 8),
+
+          // ── Privacy & Security Section ───────────────────────────────
+          _SectionHeader(title: 'Privacy & Security'),
+          _SettingsTile(
+            icon: Icons.shield_outlined,
+            iconColor: const Color(0xFF1B5E20),
+            title: 'Privacy Settings',
+            subtitle: 'Manage your data and visibility',
+            onTap: () => _showComingSoon(context),
+          ),
+          _SettingsTile(
+            icon: Icons.location_on_outlined,
+            iconColor: const Color(0xFF1B5E20),
+            title: 'Location Access',
+            subtitle: 'Control when the app uses your location',
+            onTap: () => _showComingSoon(context),
+          ),
+
+          const SizedBox(height: 8),
+
+          // ── Support Section ──────────────────────────────────────────
+          _SectionHeader(title: 'Help & Support'),
+          _SettingsTile(
+            icon: Icons.help_outline,
+            iconColor: AppTheme.textSecondary,
+            title: 'Help Center',
+            subtitle: 'FAQs and support articles',
+            onTap: () => _showComingSoon(context),
+          ),
+          _SettingsTile(
+            icon: Icons.info_outline,
+            iconColor: AppTheme.textSecondary,
+            title: 'About ResQConnect',
+            subtitle: 'Version, terms, and licenses',
+            onTap: () => _showAboutDialog(context),
+          ),
+
+          const SizedBox(height: 8),
+
+          // ── Logout ───────────────────────────────────────────────────
+          _SectionHeader(title: 'Account Actions'),
+          _SettingsTile(
+            icon: Icons.logout,
+            iconColor: AppTheme.dangerRed,
+            title: 'Log Out',
+            subtitle: 'Sign out of your account',
+            titleColor: AppTheme.dangerRed,
+            showChevron: false,
+            onTap: () => _showLogoutDialog(context),
+          ),
+
+          const SizedBox(height: 32),
+        ],
+      ),
     );
   }
 
@@ -175,8 +204,18 @@ class SettingsScreen extends StatelessWidget {
               ),
             ),
             onPressed: () async {
-              Navigator.pop(ctx);
+              Navigator.pop(ctx); // isara ang dialog
               await authProvider.logout();
+              // Replace the entire navigator stack with LoginScreen.
+              // Kailangan ito kasi ang BottomNav ay gumagamit ng
+              // pushAndRemoveUntil na nag-aalis ng _RootRouter sa stack,
+              // kaya hindi na siya makaka-redirect automatically.
+              if (context.mounted) {
+                Navigator.of(context).pushAndRemoveUntil(
+                  MaterialPageRoute(builder: (_) => const LoginScreen()),
+                  (route) => false,
+                );
+              }
             },
             child: const Text('Log Out'),
           ),

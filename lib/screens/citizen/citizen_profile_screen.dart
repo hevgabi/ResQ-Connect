@@ -193,12 +193,23 @@ class _CitizenProfileScreenState extends State<CitizenProfileScreen> {
   Widget build(BuildContext context) {
     final uid = FirebaseAuth.instance.currentUser?.uid;
     if (uid == null) {
-      return const Scaffold(body: Center(child: Text('Not logged in')));
+      // User naka-logout na — i-pop lahat para makita ng _RootRouter ang LoginScreen
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) {
+          Navigator.of(context).popUntil((route) => route.isFirst);
+        }
+      });
+      return const Scaffold(body: Center(child: CircularProgressIndicator()));
     }
 
     return StreamBuilder<UserModel?>(
       stream: _firestoreService.userStream(uid),
       builder: (context, snapshot) {
+        if (snapshot.hasError) {
+          return const Scaffold(
+            body: Center(child: CircularProgressIndicator()),
+          );
+        }
         final user = snapshot.data;
         if (user != null) _populateControllers(user);
 

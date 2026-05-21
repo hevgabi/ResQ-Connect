@@ -1,4 +1,5 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter/foundation.dart';
 
 import '../models/alert_model.dart';
 import '../models/user_model.dart';
@@ -276,10 +277,18 @@ class FirestoreService {
   }
 
   Stream<UserModel?> userStream(String uid) {
-    return _users.doc(uid).snapshots().map((doc) {
-      if (!doc.exists) return null;
-      return UserModel.fromFirestore(doc);
-    });
+    return _users
+        .doc(uid)
+        .snapshots()
+        .map((doc) {
+          if (!doc.exists) return null;
+          return UserModel.fromFirestore(doc);
+        })
+        .handleError((e) {
+          // Firestore throws PERMISSION_DENIED after logout — ignore silently.
+          // _RootRouter will automatically redirect to LoginScreen.
+          debugPrint('userStream permission error (post-logout): $e');
+        });
   }
 
   /// Fetch a user document as a [UserModel]. Returns null if not found.
