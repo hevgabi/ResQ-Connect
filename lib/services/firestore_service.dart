@@ -363,4 +363,104 @@ class FirestoreService {
   Future<SOSRequestModel?> getSosRequestById(String sosId) async {
     return getSOSRequestById(sosId);
   }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // MODERATOR STATISTICS
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  /// Real-time stream of aggregated statistics for a specific moderator.
+  /// Returns a map with: published, rejected, pending, avgReviewMinutes,
+  /// highConfidence, mediumConfidence, lowConfidence, recentActivity.
+  Stream<Map<String, dynamic>> moderatorStatsStream(String moderatorId) {
+    // Combine two streams: reviewed reports (by this moderator) + all pending
+    final reviewedStream = _reports
+        .where('moderator_id', isEqualTo: moderatorId)
+        .limit(50)
+        .snapshots();
+
+    final pendingStream = _reports
+        .where('status', isEqualTo: 'pending')
+        .snapshots();
+
+    return reviewedStream.asyncMap((reviewedSnap) async {
+      // Get pending count separately (one-time read to avoid double stream)
+      final pendingSnap = await _reports
+          .where('status', isEqualTo: 'pending')
+          .count()
+          .get();
+      final pendingCount = pendingSnap.count ?? 0;
+
+      final reviewed = reviewedSnap.docs;
+
+      // Counts
+      int published = 0;
+      int rejected = 0;
+      int highConfidence = 0;
+      int mediumConfidence = 0;
+      int lowConfidence = 0;
+      double totalReviewMinutes = 0;
+      int reviewedWithTime = 0;
+
+      final recentActivity = <Map<String, dynamic>>[];
+
+      for (final doc in reviewed) {
+        final data = doc.data() as Map<String, dynamic>;
+        final status = data['status'] as String? ?? '';
+        final aiScore = data['ai_score'] as int? ?? 0;
+        final createdAt = data['created_at'] as Timestamp?;
+        final publishedAt = data['published_at'] as Timestamp?;
+
+        // Count by status
+        if (status == 'published') published++;
+        if (status == 'rejected') rejected++;
+
+        // AI score breakdown (only published)
+        if (status == 'published') {
+          if (aiScore >= 75) {
+            highConfidence++;
+          } else if (aiScore >= 40) {
+            mediumConfidence++;
+          } else {
+            lowConfidence++;
+          }
+        }
+
+        // Avg review time
+        if (createdAt != null && publishedAt != null) {
+          final diffMinutes =
+              publishedAt.toDate().difference(createdAt.toDate()).inSeconds /
+              60.0;
+          if (diffMinutes >= 0) {
+            totalReviewMinutes += diffMinutes;
+            reviewedWithTime++;
+          }
+        }
+
+        // Recent activity (last 10)
+        if (recentActivity.length < 10) {
+          recentActivity.add({
+            'id': doc.id,
+            'category': data['category'] ?? 'other',
+            'status': status,
+            'published_at': publishedAt,
+          });
+        }
+      }
+
+      final avgReviewMinutes = reviewedWithTime > 0
+          ? totalReviewMinutes / reviewedWithTime
+          : 0.0;
+
+      return {
+        'published': published,
+        'rejected': rejected,
+        'pending': pendingCount,
+        'avgReviewMinutes': avgReviewMinutes,
+        'highConfidence': highConfidence,
+        'mediumConfidence': mediumConfidence,
+        'lowConfidence': lowConfidence,
+        'recentActivity': recentActivity,
+      };
+    });
+  }
 }

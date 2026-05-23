@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../screens/moderator/moderator_report_queue_screen.dart';
 import '../screens/moderator/moderator_published_feed_screen.dart';
+import '../screens/moderator/moderator_statistics_screen.dart';
 
 class ModeratorBottomNav extends StatelessWidget {
   final int currentIndex;
@@ -14,12 +15,12 @@ class ModeratorBottomNav extends StatelessWidget {
     final screens = [
       const ModeratorReportQueueScreen(),
       const ModeratorPublishedFeedScreen(),
+      const ModeratorStatisticsScreen(),
     ];
     Navigator.pushAndRemoveUntil(
       context,
       MaterialPageRoute(builder: (_) => screens[index]),
-      (route) =>
-          false, // clear stack so _RootRouter can regain control on logout
+      (route) => false,
     );
   }
 
@@ -51,6 +52,11 @@ class ModeratorBottomNav extends StatelessWidget {
           icon: Icon(Icons.public_outlined),
           activeIcon: Icon(Icons.public),
           label: 'Published',
+        ),
+        BottomNavigationBarItem(
+          icon: Icon(Icons.bar_chart_outlined),
+          activeIcon: Icon(Icons.bar_chart),
+          label: 'Statistics',
         ),
       ],
     );

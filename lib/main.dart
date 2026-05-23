@@ -50,9 +50,14 @@ class RootRouter extends StatelessWidget {
   Widget build(BuildContext context) {
     return Consumer<AuthProvider>(
       builder: (context, auth, _) {
-        // ── Loading / resolving ──────────────────────────────────────────────
+        // ── Still resolving auth + role ──────────────────────────────────────
         if (auth.isLoading) {
           return const SplashScreen();
+        }
+
+        // ── Account disabled ─────────────────────────────────────────────────
+        if (auth.isAccountDisabled) {
+          return const _DisabledAccountScreen();
         }
 
         // ── Not authenticated ────────────────────────────────────────────────
@@ -60,25 +65,33 @@ class RootRouter extends StatelessWidget {
           return const LoginScreen();
         }
 
-        // ── Authenticated — route by role ────────────────────────────────────
-        return switch (auth.role) {
-          'citizen' => const CitizenHomeScreen(),
-          'rescuer' => const MissionQueueScreen(),
-          'moderator' => const ModeratorReportQueueScreen(),
-          'admin' => const AdminOverviewScreen(),
-
-          // Role is null (document not yet written) or unknown value:
-          // Stay on splash while retrying, or show a fallback.
-          _ => const _RoleResolvingScreen(),
-        };
+        // ── Authenticated — strict role-based routing ────────────────────────
+        // Only exact role matches are allowed. Any unknown or null role
+        // goes to _RoleResolvingScreen which retries or forces logout.
+        switch (auth.role) {
+          case 'citizen':
+            return const CitizenHomeScreen();
+          case 'rescuer':
+            return const MissionQueueScreen();
+          case 'moderator':
+            return const ModeratorReportQueueScreen();
+          case 'admin':
+            return const AdminOverviewScreen();
+          default:
+            // Role is null or unrecognized — retry or force logout
+            return const _RoleResolvingScreen();
+        }
       },
     );
   }
 }
 
-/// Shown briefly when the user is authenticated but their role hasn't been
-/// resolved from Firestore yet (e.g. the users/{uid} doc is still being
-/// written during registration, or an unknown role value was stored).
+// ─────────────────────────────────────────────────────────────────────────────
+// Role Resolving Screen
+// Shown when user is authenticated but role is null (e.g. mid-registration
+// or Firestore read failed). Retries once, then offers sign out.
+// ─────────────────────────────────────────────────────────────────────────────
+
 class _RoleResolvingScreen extends StatefulWidget {
   const _RoleResolvingScreen();
 
@@ -87,16 +100,34 @@ class _RoleResolvingScreen extends StatefulWidget {
 }
 
 class _RoleResolvingScreenState extends State<_RoleResolvingScreen> {
+  int _retryCount = 0;
+  static const _maxRetries = 3;
+
   @override
   void initState() {
     super.initState();
-    // Retry fetching the role once after a short delay.
+    _scheduleRetry();
+  }
+
+  void _scheduleRetry() {
     Future.delayed(const Duration(seconds: 2), _retry);
   }
 
   Future<void> _retry() async {
     if (!mounted) return;
+    if (_retryCount >= _maxRetries) {
+      // Too many retries — force logout
+      debugPrint('RootRouter: max retries reached, forcing logout');
+      await context.read<AuthProvider>().logout();
+      return;
+    }
+    setState(() => _retryCount++);
     await context.read<AuthProvider>().refreshRole();
+
+    // If still no role after refresh, schedule another retry
+    if (mounted && context.read<AuthProvider>().role == null) {
+      _scheduleRetry();
+    }
   }
 
   @override
@@ -107,7 +138,6 @@ class _RoleResolvingScreenState extends State<_RoleResolvingScreen> {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            // Logo
             Container(
               width: 72,
               height: 72,
@@ -131,6 +161,11 @@ class _RoleResolvingScreenState extends State<_RoleResolvingScreen> {
               'Setting up your account…',
               style: AppTheme.body(color: AppTheme.textSecondary),
             ),
+            const SizedBox(height: 8),
+            Text(
+              'Attempt ${_retryCount + 1} of $_maxRetries',
+              style: AppTheme.body(color: AppTheme.textSecondary),
+            ),
             const SizedBox(height: 32),
             const SizedBox(
               width: 28,
@@ -149,6 +184,72 @@ class _RoleResolvingScreenState extends State<_RoleResolvingScreen> {
               ),
             ),
           ],
+        ),
+      ),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Disabled Account Screen
+// Shown when is_active == false in Firestore
+// ─────────────────────────────────────────────────────────────────────────────
+
+class _DisabledAccountScreen extends StatelessWidget {
+  const _DisabledAccountScreen();
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: AppTheme.background,
+      body: Center(
+        child: Padding(
+          padding: const EdgeInsets.all(32),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Container(
+                width: 72,
+                height: 72,
+                decoration: BoxDecoration(
+                  color: const Color(0xFFD7263D).withValues(alpha: 0.1),
+                  borderRadius: BorderRadius.circular(20),
+                ),
+                child: const Icon(
+                  Icons.block,
+                  color: Color(0xFFD7263D),
+                  size: 40,
+                ),
+              ),
+              const SizedBox(height: 24),
+              Text(
+                'Account Disabled',
+                style: AppTheme.heading2(color: const Color(0xFFD7263D)),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                'Your account has been disabled. Please contact the administrator for assistance.',
+                textAlign: TextAlign.center,
+                style: AppTheme.body(color: AppTheme.textSecondary),
+              ),
+              const SizedBox(height: 40),
+              ElevatedButton(
+                onPressed: () => context.read<AuthProvider>().logout(),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFFD7263D),
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 32,
+                    vertical: 14,
+                  ),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                ),
+                child: const Text('Sign Out'),
+              ),
+            ],
+          ),
         ),
       ),
     );
