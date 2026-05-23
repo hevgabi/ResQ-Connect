@@ -1,0 +1,18 @@
+# Set the minimum iOS deployment target to 14.0 for Google Maps
+platform :ios, '14.0'
+
+# Objective-C output paths setup
+import_with_sharing = false
+
+target 'Runner' do
+  use_frameworks!
+  use_modular_headers!
+
+  flutter_install_all_ios_pods File.dirname(File.realpath(__FILE__))
+end
+
+post_install do |installer|
+  installer.pods_project.targets.each do |target|
+    flutter_additional_ios_build_settings(target)
+  end
+end
