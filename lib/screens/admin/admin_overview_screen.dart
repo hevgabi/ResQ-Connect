@@ -7,56 +7,12 @@ import '../../widgets/error_banner.dart';
 import '../../widgets/empty_state.dart';
 import '../../screens/settings/hamburger_menu_screen.dart';
 import 'admin_incidents_screen.dart';
+import 'admin_rescuers_screen.dart';
+import 'admin_evac_centers_screen.dart';
+import 'admin_approvals_screen.dart';
 
 class AdminOverviewScreen extends StatelessWidget {
   const AdminOverviewScreen({super.key});
-
-  void _showSettingsDialog(BuildContext context) {
-    showDialog(
-      context: context,
-      builder: (_) => AlertDialog(
-        title: const Text(
-          'Settings',
-          style: TextStyle(
-            fontWeight: FontWeight.bold,
-            color: Color(0xFF0D47A1),
-          ),
-        ),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            ListTile(
-              leading: const Icon(
-                Icons.people_outline,
-                color: Color(0xFF0D47A1),
-              ),
-              title: const Text('Manage User Roles'),
-              onTap: () => Navigator.pop(context),
-            ),
-            ListTile(
-              leading: const Icon(
-                Icons.notifications_outlined,
-                color: Color(0xFF0D47A1),
-              ),
-              title: const Text('Alert Broadcasts'),
-              onTap: () => Navigator.pop(context),
-            ),
-            ListTile(
-              leading: const Icon(Icons.info_outline, color: Color(0xFF546E7A)),
-              title: const Text('App Info'),
-              onTap: () => Navigator.pop(context),
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Close'),
-          ),
-        ],
-      ),
-    );
-  }
 
   @override
   Widget build(BuildContext context) {
@@ -64,102 +20,263 @@ class AdminOverviewScreen extends StatelessWidget {
       backgroundColor: const Color(0xFFF5F7FA),
       appBar: AppBar(
         backgroundColor: const Color(0xFF0D47A1),
-        title: const Text(
-          'Admin Overview',
-          style: TextStyle(
-            color: Colors.white,
-            fontWeight: FontWeight.bold,
-            fontSize: 20,
+        leading: IconButton(
+          icon: const Icon(Icons.menu, color: Colors.white),
+          tooltip: 'Menu',
+          onPressed: () => Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (_) =>
+              const HamburgerMenuScreen(role: HamburgerRole.admin),
+            ),
           ),
         ),
+        title: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Admin Overview',
+              style: TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.bold,
+                fontSize: 18,
+              ),
+            ),
+            Text(
+              _formattedDate(),
+              style: const TextStyle(
+                color: Colors.white60,
+                fontSize: 11,
+              ),
+            ),
+          ],
+        ),
         actions: [
-          IconButton(
-            icon: const Icon(Icons.menu, color: Colors.white),
-            tooltip: 'Menu',
-            onPressed: () => Navigator.push(
-              context,
-              MaterialPageRoute(
-                builder: (_) =>
-                    const HamburgerMenuScreen(role: HamburgerRole.citizen),
+          StreamBuilder<int>(
+            stream: FirestoreService.instance.pendingApprovalsCountStream(),
+            builder: (context, snapshot) {
+              final count = snapshot.data ?? 0;
+              return Stack(
+                children: [
+                  IconButton(
+                    icon: const Icon(
+                      Icons.notifications_outlined,
+                      color: Colors.white,
+                    ),
+                    onPressed: () => Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => const AdminApprovalsScreen(),
+                      ),
+                    ),
+                  ),
+                  if (count > 0)
+                    Positioned(
+                      right: 8,
+                      top: 8,
+                      child: Container(
+                        padding: const EdgeInsets.all(3),
+                        decoration: const BoxDecoration(
+                          color: Color(0xFFE53935),
+                          shape: BoxShape.circle,
+                        ),
+                        constraints: const BoxConstraints(
+                          minWidth: 16,
+                          minHeight: 16,
+                        ),
+                        child: Text(
+                          count > 9 ? '9+' : count.toString(),
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 9,
+                            fontWeight: FontWeight.bold,
+                          ),
+                          textAlign: TextAlign.center,
+                        ),
+                      ),
+                    ),
+                ],
+              );
+            },
+          ),
+        ],
+      ),
+      body: Column(
+        children: [
+          const _StatusBanner(),
+          Expanded(
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  GridView.count(
+                    crossAxisCount: 2,
+                    shrinkWrap: true,
+                    physics: const NeverScrollableScrollPhysics(),
+                    crossAxisSpacing: 12,
+                    mainAxisSpacing: 12,
+                    childAspectRatio: 1.3,
+                    children: const [
+                      _ActiveSOSCard(),
+                      _RescuersActiveCard(),
+                      _EvacSlotsFreeCard(),
+                      _PendingApprovalsCard(),
+                    ],
+                  ),
+                  const SizedBox(height: 24),
+                  Row(
+                    children: [
+                      Container(
+                        width: 4,
+                        height: 20,
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFD7263D),
+                          borderRadius: BorderRadius.circular(2),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      const Text(
+                        'Live Incidents',
+                        style: TextStyle(
+                          fontSize: 17,
+                          fontWeight: FontWeight.bold,
+                          color: Color(0xFF1A2B45),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      _PulsingDot(),
+                      const Spacer(),
+                      TextButton(
+                        onPressed: () => Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (_) => const AdminIncidentsScreen(),
+                          ),
+                        ),
+                        child: const Text(
+                          'See all →',
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: Color(0xFF1565C0),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  _LiveIncidentsList(),
+                  const SizedBox(height: 32),
+                ],
               ),
             ),
           ),
         ],
       ),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // KPI Grid
-            GridView.count(
-              crossAxisCount: 2,
-              shrinkWrap: true,
-              physics: const NeverScrollableScrollPhysics(),
-              crossAxisSpacing: 12,
-              mainAxisSpacing: 12,
-              childAspectRatio: 1.3,
-              children: const [
-                _ActiveSOSCard(),
-                _RescuersActiveCard(),
-                _EvacSlotsFreeCard(),
-                _AvgResponseCard(),
-              ],
-            ),
-            const SizedBox(height: 24),
-            // Live Incidents section
-            Row(
-              children: [
-                Container(
-                  width: 4,
-                  height: 20,
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFD7263D),
-                    borderRadius: BorderRadius.circular(2),
+    );
+  }
+
+  String _formattedDate() {
+    final now = DateTime.now();
+    const days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+    const months = [
+      'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+      'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'
+    ];
+    final day = days[now.weekday - 1];
+    final month = months[now.month - 1];
+    return '$day, $month ${now.day}';
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// STATUS BANNER
+// ═══════════════════════════════════════════════════════════════════════════
+
+class _StatusBanner extends StatelessWidget {
+  const _StatusBanner();
+
+  @override
+  Widget build(BuildContext context) {
+    return StreamBuilder<int>(
+      stream: FirestoreService.instance.pendingApprovalsCountStream(),
+      builder: (context, snapshot) {
+        final pending = snapshot.data ?? 0;
+        return StreamBuilder<QuerySnapshot>(
+          stream: FirebaseFirestore.instance
+              .collection('sos_requests')
+              .where('status', isEqualTo: 'open')
+              .snapshots(),
+          builder: (context, sosSnap) {
+            final activeSOS = sosSnap.data?.docs.length ?? 0;
+
+            Color bannerColor;
+            Color textColor;
+            Color dotColor;
+            String message;
+
+            if (activeSOS > 0) {
+              bannerColor = const Color(0xFFFFEBEE);
+              textColor = const Color(0xFFB71C1C);
+              dotColor = const Color(0xFFE53935);
+              message =
+              '$activeSOS active SOS request${activeSOS > 1 ? 's' : ''} need attention';
+            } else if (pending > 0) {
+              bannerColor = const Color(0xFFFFF8E1);
+              textColor = const Color(0xFFE65100);
+              dotColor = const Color(0xFFF57F17);
+              message =
+              '$pending pending registration${pending > 1 ? 's' : ''} need review';
+            } else {
+              bannerColor = const Color(0xFFE8F5E9);
+              textColor = const Color(0xFF2E7D32);
+              dotColor = const Color(0xFF43A047);
+              message = 'All systems normal';
+            }
+
+            return Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              color: bannerColor,
+              child: Row(
+                children: [
+                  Container(
+                    width: 8,
+                    height: 8,
+                    decoration: BoxDecoration(
+                      color: dotColor,
+                      shape: BoxShape.circle,
+                    ),
                   ),
-                ),
-                const SizedBox(width: 8),
-                const Text(
-                  'Live Incidents',
-                  style: TextStyle(
-                    fontSize: 17,
-                    fontWeight: FontWeight.bold,
-                    color: Color(0xFF1A2B45),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      message,
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w500,
+                        color: textColor,
+                      ),
+                    ),
                   ),
-                ),
-                const SizedBox(width: 8),
-                _PulsingDot(),
-              ],
-            ),
-            const SizedBox(height: 12),
-            _LiveIncidentsList(),
-            const SizedBox(height: 80),
-          ],
-        ),
-      ),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: () => Navigator.push(
-          context,
-          MaterialPageRoute(builder: (_) => const AdminIncidentsScreen()),
-        ),
-        backgroundColor: const Color(0xFF0D47A1),
-        icon: const Icon(Icons.manage_search, color: Colors.white),
-        label: const Text(
-          'Manage Incidents',
-          style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
-        ),
-      ),
+                ],
+              ),
+            );
+          },
+        );
+      },
     );
   }
 }
 
-// ---------------------------------------------------------------------------
-// KPI Cards
-// ---------------------------------------------------------------------------
+// ═══════════════════════════════════════════════════════════════════════════
+// KPI CARDS
+// ═══════════════════════════════════════════════════════════════════════════
 
 class _KpiCard extends StatelessWidget {
   final String label;
   final String value;
+  final String subtitle;
   final IconData icon;
   final Color color;
   final bool isLoading;
@@ -167,6 +284,7 @@ class _KpiCard extends StatelessWidget {
   const _KpiCard({
     required this.label,
     required this.value,
+    required this.subtitle,
     required this.icon,
     required this.color,
     this.isLoading = false,
@@ -175,7 +293,7 @@ class _KpiCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(16),
@@ -192,41 +310,49 @@ class _KpiCard extends StatelessWidget {
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
           Container(
-            width: 36,
-            height: 36,
+            width: 34,
+            height: 34,
             decoration: BoxDecoration(
               color: color.withValues(alpha: 0.12),
               borderRadius: BorderRadius.circular(10),
             ),
-            child: Icon(icon, color: color, size: 20),
+            child: Icon(icon, color: color, size: 18),
           ),
           Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               isLoading
                   ? Container(
-                      width: 50,
-                      height: 28,
-                      decoration: BoxDecoration(
-                        color: Colors.grey.shade200,
-                        borderRadius: BorderRadius.circular(6),
-                      ),
-                    )
+                width: 50,
+                height: 26,
+                decoration: BoxDecoration(
+                  color: Colors.grey.shade200,
+                  borderRadius: BorderRadius.circular(6),
+                ),
+              )
                   : Text(
-                      value,
-                      style: TextStyle(
-                        fontSize: 26,
-                        fontWeight: FontWeight.bold,
-                        color: color,
-                      ),
-                    ),
+                value,
+                style: TextStyle(
+                  fontSize: 24,
+                  fontWeight: FontWeight.bold,
+                  color: color,
+                ),
+              ),
               const SizedBox(height: 2),
               Text(
                 label,
                 style: const TextStyle(
-                  fontSize: 11,
+                  fontSize: 10,
                   color: Color(0xFF546E7A),
                   fontWeight: FontWeight.w500,
+                ),
+              ),
+              const SizedBox(height: 2),
+              Text(
+                subtitle,
+                style: TextStyle(
+                  fontSize: 9,
+                  color: color.withValues(alpha: 0.7),
                 ),
               ),
             ],
@@ -248,14 +374,15 @@ class _ActiveSOSCard extends StatelessWidget {
           .where('status', isEqualTo: 'open')
           .snapshots(),
       builder: (context, snapshot) {
-        final count = snapshot.hasData
-            ? snapshot.data!.docs.length.toString()
-            : '—';
+        final count = snapshot.hasData ? snapshot.data!.docs.length : 0;
         return _KpiCard(
           label: 'Active SOS',
-          value: count,
+          value: snapshot.hasData ? count.toString() : '—',
+          subtitle: count > 0 ? '● Needs attention' : '● All clear',
           icon: Icons.sos_outlined,
-          color: const Color(0xFFD7263D),
+          color: count > 0
+              ? const Color(0xFFD7263D)
+              : const Color(0xFF1FAA59),
           isLoading: snapshot.connectionState == ConnectionState.waiting,
         );
       },
@@ -271,15 +398,24 @@ class _RescuersActiveCard extends StatelessWidget {
     return StreamBuilder<QuerySnapshot>(
       stream: FirebaseFirestore.instance
           .collection('rescuers')
-          .where('is_on_duty', isEqualTo: true)
           .snapshots(),
       builder: (context, snapshot) {
-        final count = snapshot.hasData
-            ? snapshot.data!.docs.length.toString()
-            : '—';
+        int onDuty = 0;
+        int offDuty = 0;
+        if (snapshot.hasData) {
+          for (final doc in snapshot.data!.docs) {
+            final data = doc.data() as Map<String, dynamic>;
+            if (data['is_on_duty'] == true) {
+              onDuty++;
+            } else {
+              offDuty++;
+            }
+          }
+        }
         return _KpiCard(
           label: 'Rescuers Active',
-          value: count,
+          value: snapshot.hasData ? onDuty.toString() : '—',
+          subtitle: snapshot.hasData ? '$offDuty off duty' : '',
           icon: Icons.emergency_outlined,
           color: const Color(0xFF1FAA59),
           isLoading: snapshot.connectionState == ConnectionState.waiting,
@@ -300,22 +436,31 @@ class _EvacSlotsFreeCard extends StatelessWidget {
           .snapshots(),
       builder: (context, snapshot) {
         String display = '—';
+        String subtitle = '';
         bool loading = snapshot.connectionState == ConnectionState.waiting;
 
         if (snapshot.hasData) {
           int freeSlots = 0;
+          int totalSlots = 0;
           for (final doc in snapshot.data!.docs) {
             final data = doc.data() as Map<String, dynamic>;
-            final total = (data['total_slots'] as num?)?.toInt() ?? 0;
-            final occupied = (data['occupied_slots'] as num?)?.toInt() ?? 0;
+            final total = (data['capacity'] as num?)?.toInt() ?? 0;
+            final occupied =
+                (data['current_occupancy'] as num?)?.toInt() ?? 0;
             freeSlots += (total - occupied).clamp(0, total);
+            totalSlots += total;
           }
           display = freeSlots.toString();
+          final pct = totalSlots > 0
+              ? ((1 - freeSlots / totalSlots) * 100).toStringAsFixed(0)
+              : '0';
+          subtitle = '$pct% occupied';
         }
 
         return _KpiCard(
           label: 'Evac Slots Free',
           value: display,
+          subtitle: subtitle,
           icon: Icons.home_outlined,
           color: const Color(0xFF0D47A1),
           isLoading: loading,
@@ -325,57 +470,41 @@ class _EvacSlotsFreeCard extends StatelessWidget {
   }
 }
 
-class _AvgResponseCard extends StatelessWidget {
-  const _AvgResponseCard();
+class _PendingApprovalsCard extends StatelessWidget {
+  const _PendingApprovalsCard();
 
   @override
   Widget build(BuildContext context) {
-    final since = Timestamp.fromDate(
-      DateTime.now().subtract(const Duration(hours: 24)),
-    );
-
-    return StreamBuilder<QuerySnapshot>(
-      stream: FirebaseFirestore.instance
-          .collection('missions')
-          .where('accepted_at', isGreaterThanOrEqualTo: since)
-          .snapshots(),
+    return StreamBuilder<int>(
+      stream: FirestoreService.instance.pendingApprovalsCountStream(),
       builder: (context, snapshot) {
-        String display = '—';
-        bool loading = snapshot.connectionState == ConnectionState.waiting;
-
-        if (snapshot.hasData && snapshot.data!.docs.isNotEmpty) {
-          double totalMin = 0;
-          int count = 0;
-          for (final doc in snapshot.data!.docs) {
-            final data = doc.data() as Map<String, dynamic>;
-            final arrivedAt = data['arrived_at'] as Timestamp?;
-            final acceptedAt = data['accepted_at'] as Timestamp?;
-            if (arrivedAt != null && acceptedAt != null) {
-              final diff = (arrivedAt.seconds - acceptedAt.seconds) / 60.0;
-              if (diff >= 0) {
-                totalMin += diff;
-                count++;
-              }
-            }
-          }
-          display = count > 0 ? (totalMin / count).toStringAsFixed(1) : '—';
-        }
-
-        return _KpiCard(
-          label: 'Avg Response (min)',
-          value: display,
-          icon: Icons.timer_outlined,
-          color: const Color(0xFFFF6B00),
-          isLoading: loading,
+        final count = snapshot.data ?? 0;
+        return GestureDetector(
+          onTap: () => Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (_) => const AdminApprovalsScreen(),
+            ),
+          ),
+          child: _KpiCard(
+            label: 'Pending Approvals',
+            value: snapshot.hasData ? count.toString() : '—',
+            subtitle: count > 0 ? '● Action required' : '● All reviewed',
+            icon: Icons.how_to_reg_outlined,
+            color: count > 0
+                ? const Color(0xFFE65100)
+                : const Color(0xFF1FAA59),
+            isLoading: snapshot.connectionState == ConnectionState.waiting,
+          ),
         );
       },
     );
   }
 }
 
-// ---------------------------------------------------------------------------
-// Live Incidents List
-// ---------------------------------------------------------------------------
+// ═══════════════════════════════════════════════════════════════════════════
+// LIVE INCIDENTS LIST
+// ═══════════════════════════════════════════════════════════════════════════
 
 class _LiveIncidentsList extends StatelessWidget {
   @override
@@ -390,7 +519,7 @@ class _LiveIncidentsList extends StatelessWidget {
           return Column(
             children: List.generate(
               3,
-              (_) => Padding(
+                  (_) => Padding(
                 padding: const EdgeInsets.only(bottom: 10),
                 child: _IncidentRowSkeleton(),
               ),
@@ -426,7 +555,6 @@ class _LiveIncidentsList extends StatelessWidget {
 
 class _IncidentRow extends StatelessWidget {
   final Map<String, dynamic> data;
-
   const _IncidentRow({required this.data});
 
   @override
@@ -440,22 +568,29 @@ class _IncidentRow extends StatelessWidget {
     final locationText = (lat != null && lng != null)
         ? '${lat.toStringAsFixed(4)}, ${lng.toStringAsFixed(4)}'
         : 'Unknown location';
-    final timeText = createdAt != null ? timeago.format(createdAt) : 'Unknown';
+    final timeText =
+    createdAt != null ? timeago.format(createdAt) : 'Unknown';
 
-    Color statusColor;
-    String statusLabel;
-    switch (status) {
-      case 'assigned':
-        statusColor = const Color(0xFF0D47A1);
-        statusLabel = 'Assigned';
-        break;
-      case 'resolved':
-        statusColor = const Color(0xFF1FAA59);
-        statusLabel = 'Resolved';
-        break;
-      default:
-        statusColor = const Color(0xFFD7263D);
-        statusLabel = 'Open';
+    Color dotColor;
+    String priorityLabel;
+    Color priorityBg;
+    Color priorityText;
+
+    if (status == 'open') {
+      dotColor = const Color(0xFFE53935);
+      priorityLabel = 'CRITICAL';
+      priorityBg = const Color(0xFFFFEBEE);
+      priorityText = const Color(0xFFB71C1C);
+    } else if (status == 'assigned') {
+      dotColor = const Color(0xFFFB8C00);
+      priorityLabel = 'ACTIVE';
+      priorityBg = const Color(0xFFFFF3E0);
+      priorityText = const Color(0xFFE65100);
+    } else {
+      dotColor = const Color(0xFF43A047);
+      priorityLabel = 'MONITORING';
+      priorityBg = const Color(0xFFE8F5E9);
+      priorityText = const Color(0xFF2E7D32);
     }
 
     return Container(
@@ -477,7 +612,7 @@ class _IncidentRow extends StatelessWidget {
             width: 8,
             height: 8,
             decoration: BoxDecoration(
-              color: statusColor,
+              color: dotColor,
               shape: BoxShape.circle,
             ),
           ),
@@ -498,7 +633,7 @@ class _IncidentRow extends StatelessWidget {
                 Text(
                   locationText,
                   style: const TextStyle(
-                    fontSize: 12,
+                    fontSize: 11,
                     color: Color(0xFF546E7A),
                   ),
                 ),
@@ -509,24 +644,30 @@ class _IncidentRow extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.end,
             children: [
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 8,
+                  vertical: 3,
+                ),
                 decoration: BoxDecoration(
-                  color: statusColor.withValues(alpha: 0.1),
+                  color: priorityBg,
                   borderRadius: BorderRadius.circular(6),
                 ),
                 child: Text(
-                  statusLabel,
+                  priorityLabel,
                   style: TextStyle(
-                    fontSize: 10,
+                    fontSize: 9,
                     fontWeight: FontWeight.bold,
-                    color: statusColor,
+                    color: priorityText,
                   ),
                 ),
               ),
               const SizedBox(height: 4),
               Text(
                 timeText,
-                style: const TextStyle(fontSize: 11, color: Color(0xFF546E7A)),
+                style: const TextStyle(
+                  fontSize: 10,
+                  color: Color(0xFF546E7A),
+                ),
               ),
             ],
           ),
@@ -584,7 +725,7 @@ class _IncidentRowSkeleton extends StatelessWidget {
           ),
           Container(
             height: 22,
-            width: 60,
+            width: 70,
             decoration: BoxDecoration(
               color: Colors.grey.shade200,
               borderRadius: BorderRadius.circular(6),
@@ -595,6 +736,10 @@ class _IncidentRowSkeleton extends StatelessWidget {
     );
   }
 }
+
+// ═══════════════════════════════════════════════════════════════════════════
+// PULSING DOT ANIMATION
+// ═══════════════════════════════════════════════════════════════════════════
 
 class _PulsingDot extends StatefulWidget {
   @override

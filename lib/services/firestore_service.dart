@@ -40,31 +40,28 @@ class FirestoreService {
         .snapshots()
         .map(
           (snap) =>
-              snap.docs.map((doc) => AlertModel.fromFirestore(doc)).toList(),
-        );
+          snap.docs.map((doc) => AlertModel.fromFirestore(doc)).toList(),
+    );
   }
 
   /// All SOS requests with status == 'open', oldest first (FIFO dispatch).
-  /// Pass [excludeRescuerId] to hide entries this rescuer has deferred
-  /// (stored in the 'deferred_by' array on each SOS document).
   Stream<List<SOSRequestModel>> openSOSStream({String? excludeRescuerId}) {
     return _sosRequests
         .where('status', isEqualTo: 'open')
         .orderBy('created_at', descending: false)
         .snapshots()
         .map((snap) {
-          final all = snap.docs
-              .map((doc) => SOSRequestModel.fromFirestore(doc))
-              .toList();
+      final all = snap.docs
+          .map((doc) => SOSRequestModel.fromFirestore(doc))
+          .toList();
 
-          if (excludeRescuerId == null) return all;
+      if (excludeRescuerId == null) return all;
 
-          // Filter out SOS requests that this rescuer has already deferred.
-          return all.where((sos) {
-            final deferredBy = (sos.deferredBy ?? []);
-            return !deferredBy.contains(excludeRescuerId);
-          }).toList();
-        });
+      return all.where((sos) {
+        final deferredBy = (sos.deferredBy ?? []);
+        return !deferredBy.contains(excludeRescuerId);
+      }).toList();
+    });
   }
 
   /// Reports awaiting moderation, oldest first.
@@ -75,8 +72,8 @@ class FirestoreService {
         .snapshots()
         .map(
           (snap) =>
-              snap.docs.map((doc) => ReportModel.fromFirestore(doc)).toList(),
-        );
+          snap.docs.map((doc) => ReportModel.fromFirestore(doc)).toList(),
+    );
   }
 
   /// Published reports, newest first (community feed source).
@@ -87,8 +84,8 @@ class FirestoreService {
         .snapshots()
         .map(
           (snap) =>
-              snap.docs.map((doc) => ReportModel.fromFirestore(doc)).toList(),
-        );
+          snap.docs.map((doc) => ReportModel.fromFirestore(doc)).toList(),
+    );
   }
 
   /// Live updates for a single SOS request document.
@@ -115,12 +112,11 @@ class FirestoreService {
         .snapshots()
         .map(
           (snap) =>
-              snap.docs.map((doc) => MissionModel.fromFirestore(doc)).toList(),
-        );
+          snap.docs.map((doc) => MissionModel.fromFirestore(doc)).toList(),
+    );
   }
 
   /// Latest 20 community feed items, newest first.
-  /// Returns raw maps so callers can render mixed content types.
   Stream<List<Map<String, dynamic>>> communityFeedStream() {
     return _communityFeed
         .orderBy('published_at', descending: true)
@@ -128,11 +124,220 @@ class FirestoreService {
         .snapshots()
         .map(
           (snap) => snap.docs
-              .map(
-                (doc) => {'id': doc.id, ...doc.data() as Map<String, dynamic>},
-              )
-              .toList(),
-        );
+          .map(
+            (doc) => {'id': doc.id, ...doc.data() as Map<String, dynamic>},
+      )
+          .toList(),
+    );
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // NEW — EVAC CENTERS STREAMS & WRITES
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  /// Live stream of all evacuation centers, ordered by name.
+  /// Use this in the admin Evac Centers screen instead of the one-time
+  /// [getEvacCenters()] so the list updates in real time.
+  Stream<List<EvacCenterModel>> evacCentersStream() {
+    return _evacCenters
+        .orderBy('name')
+        .snapshots()
+        .map((snap) => snap.docs
+        .map((doc) => EvacCenterModel.fromFirestore(doc))
+        .toList());
+  }
+
+  /// Updates the status of an evac center.
+  /// [status] must be one of: 'open' | 'full' | 'closed'
+  /// Also keeps the legacy 'is_open' field in sync for citizen map screens.
+  Future<void> updateEvacCenterStatus(
+      String centerId,
+      String status,
+      ) async {
+    assert(
+    ['open', 'full', 'closed'].contains(status),
+    'status must be open, full, or closed',
+    );
+    await _evacCenters.doc(centerId).update({
+      'status': status,
+      'is_open': status == 'open',
+      'updated_at': FieldValue.serverTimestamp(),
+    });
+  }
+
+  /// Adds a new evacuation center and returns its generated document ID.
+  Future<String> addEvacCenter(Map<String, dynamic> data) async {
+    final ref = await _evacCenters.add({
+      ...data,
+      // Always write both fields for backward compatibility
+      'status': data['status'] ?? 'open',
+      'is_open': (data['status'] ?? 'open') == 'open',
+      'is_archived': false,
+      'current_occupancy': 0,
+      'created_at': FieldValue.serverTimestamp(),
+      'updated_at': FieldValue.serverTimestamp(),
+    });
+    return ref.id;
+  }
+
+  /// Archives an evac center (sets is_archived: true).
+  /// Preferred over hard-delete to preserve history.
+  Future<void> archiveEvacCenter(String centerId) async {
+    await _evacCenters.doc(centerId).update({
+      'is_archived': true,
+      'archived_at': FieldValue.serverTimestamp(),
+    });
+  }
+
+  /// Permanently deletes an evac center document.
+  /// Use [archiveEvacCenter] instead unless you are 100% sure.
+  Future<void> deleteEvacCenter(String centerId) async {
+    await _evacCenters.doc(centerId).delete();
+  }
+
+  /// Updates evac center occupancy count.
+  Future<void> updateEvacCenterOccupancy(
+      String centerId,
+      int currentOccupancy,
+      ) async {
+    await _evacCenters.doc(centerId).update({
+      'current_occupancy': currentOccupancy,
+      'updated_at': FieldValue.serverTimestamp(),
+    });
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // NEW — RESCUERS STREAM (ADMIN)
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  /// Live stream of ALL rescuers joined with their user profile.
+  /// Returns a list of raw maps combining both 'rescuers' and 'users' data.
+  /// Each map contains all rescuer fields plus 'display_name', 'email',
+  /// 'photo_url' from the users collection.
+  Stream<List<Map<String, dynamic>>> allRescuersStream() {
+    return _rescuers.snapshots().asyncMap((snap) async {
+      final result = <Map<String, dynamic>>[];
+
+      for (final doc in snap.docs) {
+        final rescuerData = doc.data() as Map<String, dynamic>;
+
+        // Fetch matching user profile for display name, email, photo
+        Map<String, dynamic> userData = {};
+        try {
+          final userDoc = await _users.doc(doc.id).get();
+          if (userDoc.exists) {
+            userData = userDoc.data() as Map<String, dynamic>;
+          }
+        } catch (_) {
+          // If user doc missing, continue with empty userData
+        }
+
+        result.add({
+          'id': doc.id,
+          ...rescuerData,
+          // Overlay user profile fields (display_name wins over rescuer copy)
+          'display_name': userData['display_name'] ??
+              rescuerData['display_name'] ??
+              'Unknown',
+          'email': userData['email'] ?? rescuerData['email'] ?? '',
+          'photo_url': userData['photo_url'] ?? rescuerData['photo_url'] ?? '',
+          'phone': userData['phone'] ?? rescuerData['phone'] ?? '',
+        });
+      }
+
+      return result;
+    });
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // NEW — USER APPROVALS (ADMIN)
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  /// Live stream of all users with status == 'pending', newest first.
+  /// Used in the admin Approvals tab.
+  Stream<List<Map<String, dynamic>>> pendingUsersStream() {
+    return _users
+        .where('status', isEqualTo: 'pending')
+        .orderBy('created_at', descending: true)
+        .snapshots()
+        .map((snap) => snap.docs
+        .map((doc) => {
+      'uid': doc.id,
+      ...doc.data() as Map<String, dynamic>,
+    })
+        .toList());
+  }
+
+  /// Approves a user registration.
+  /// Sets status to 'approved' and records the approving admin's ID.
+  Future<void> approveUser(String uid, String adminId) async {
+    await _users.doc(uid).update({
+      'status': 'approved',
+      'approved_by': adminId,
+      'approved_at': FieldValue.serverTimestamp(),
+    });
+  }
+
+  /// Rejects a user registration.
+  /// Sets status to 'rejected', records reason and the admin's ID.
+  Future<void> rejectUser(
+      String uid,
+      String adminId, {
+        String reason = '',
+      }) async {
+    await _users.doc(uid).update({
+      'status': 'rejected',
+      'rejected_by': adminId,
+      'rejected_at': FieldValue.serverTimestamp(),
+      'rejection_reason': reason,
+    });
+  }
+
+  /// Checks if a newly registered user is a potential duplicate.
+  /// Looks for existing APPROVED users with the same email or phone.
+  /// Returns a list of matching user maps (empty = no duplicates found).
+  Future<List<Map<String, dynamic>>> checkDuplicateUser({
+    required String email,
+    String? phone,
+  }) async {
+    final results = <Map<String, dynamic>>[];
+
+    // Check by email
+    try {
+      final emailSnap = await _users
+          .where('email', isEqualTo: email)
+          .where('status', isEqualTo: 'approved')
+          .limit(1)
+          .get();
+      for (final doc in emailSnap.docs) {
+        results.add({'uid': doc.id, ...doc.data() as Map<String, dynamic>});
+      }
+    } catch (_) {}
+
+    // Check by phone if provided and no email match yet
+    if (results.isEmpty && phone != null && phone.isNotEmpty) {
+      try {
+        final phoneSnap = await _users
+            .where('phone', isEqualTo: phone)
+            .where('status', isEqualTo: 'approved')
+            .limit(1)
+            .get();
+        for (final doc in phoneSnap.docs) {
+          results.add({'uid': doc.id, ...doc.data() as Map<String, dynamic>});
+        }
+      } catch (_) {}
+    }
+
+    return results;
+  }
+
+  /// Live stream of count of pending approvals.
+  /// Used in the admin overview KPI card and nav badge.
+  Stream<int> pendingApprovalsCountStream() {
+    return _users
+        .where('status', isEqualTo: 'pending')
+        .snapshots()
+        .map((snap) => snap.docs.length);
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
@@ -141,21 +346,18 @@ class FirestoreService {
 
   // ── Users ─────────────────────────────────────────────────────────────────
 
-  /// Fetch a user's Firestore profile. Returns null if the document doesn't exist.
   Future<Map<String, dynamic>?> getUser(String uid) async {
     final doc = await _users.doc(uid).get();
     if (!doc.exists) return null;
     return {'uid': doc.id, ...doc.data() as Map<String, dynamic>};
   }
 
-  /// Merge [data] into the user document (creates the doc if missing).
   Future<void> updateUser(String uid, Map<String, dynamic> data) async {
     await _users.doc(uid).set(data, SetOptions(merge: true));
   }
 
   // ── SOS Requests ──────────────────────────────────────────────────────────
 
-  /// Creates a new SOS request and returns its generated document ID.
   Future<String> createSOSRequest(Map<String, dynamic> data) async {
     final ref = await _sosRequests.add({
       ...data,
@@ -165,7 +367,6 @@ class FirestoreService {
     return ref.id;
   }
 
-  /// Merges [data] into an existing SOS request and stamps updated_at.
   Future<void> updateSOSRequest(String sosId, Map<String, dynamic> data) async {
     await _sosRequests.doc(sosId).update({
       ...data,
@@ -173,14 +374,12 @@ class FirestoreService {
     });
   }
 
-  /// Fallback method naming to handle lower-case screen callers dynamically
   Future<void> updateSosRequest(String sosId, Map<String, dynamic> data) async {
     await updateSOSRequest(sosId, data);
   }
 
   // ── Missions ──────────────────────────────────────────────────────────────
 
-  /// Creates a new mission document and returns its generated document ID.
   Future<String> createMission(Map<String, dynamic> data) async {
     final ref = await _missions.add({
       ...data,
@@ -189,17 +388,15 @@ class FirestoreService {
     return ref.id;
   }
 
-  /// Updates an existing mission document.
   Future<void> updateMission(
-    String missionId,
-    Map<String, dynamic> data,
-  ) async {
+      String missionId,
+      Map<String, dynamic> data,
+      ) async {
     await _missions.doc(missionId).update(data);
   }
 
   // ── Reports ───────────────────────────────────────────────────────────────
 
-  /// Submits a new incident report and returns its generated document ID.
   Future<String> createReport(Map<String, dynamic> data) async {
     final ref = await _reports.add({
       ...data,
@@ -209,28 +406,22 @@ class FirestoreService {
     return ref.id;
   }
 
-  /// Updates an existing report document.
   Future<void> updateReport(String reportId, Map<String, dynamic> data) async {
     await _reports.doc(reportId).update(data);
   }
 
-  /// Publishes a report: sets status to 'published', records moderator + timestamp.
-  /// Also writes the report to community_feed as a denormalised copy.
   Future<void> publishReport(String reportId, String moderatorId) async {
     final now = FieldValue.serverTimestamp();
 
-    // 1. Update the report document.
     await _reports.doc(reportId).update({
       'status': 'published',
       'moderator_id': moderatorId,
       'published_at': now,
     });
 
-    // 2. Fetch the updated snapshot to denormalise into community_feed.
     final reportDoc = await _reports.doc(reportId).get();
     final reportData = reportDoc.data() as Map<String, dynamic>;
 
-    // 3. Write to community_feed (client-side replacement for Cloud Function trigger).
     await _communityFeed.doc(reportId).set({
       'report_id': reportId,
       'title': reportData['title'],
@@ -249,8 +440,8 @@ class FirestoreService {
 
   // ── Evacuation Centers ────────────────────────────────────────────────────
 
-  /// FIXED: Ginawang List<Map<String, dynamic>> representation para compatible
-  /// sa custom processing loops ng UI components mo.
+  /// One-time fetch of all evac centers as raw maps.
+  /// Prefer [evacCentersStream()] for live admin screens.
   Future<List<Map<String, dynamic>>> getEvacCenters() async {
     final snap = await _evacCenters.get();
     return snap.docs
@@ -260,7 +451,6 @@ class FirestoreService {
 
   // ── Rescuers ──────────────────────────────────────────────────────────────
 
-  /// Toggles a rescuer's on-duty status.
   Future<void> updateRescuerDuty(String uid, bool isOnDuty) async {
     await _rescuers.doc(uid).set({
       'is_on_duty': isOnDuty,
@@ -268,8 +458,6 @@ class FirestoreService {
     }, SetOptions(merge: true));
   }
 
-  /// Updates a rescuer's last-known GPS coordinates.
-  /// Called periodically from LocationService while the rescuer is on duty.
   Future<void> updateRescuerLocation(String uid, double lat, double lng) async {
     await _rescuers.doc(uid).set({
       'latitude': lat,
@@ -291,40 +479,33 @@ class FirestoreService {
         .doc(uid)
         .snapshots()
         .map((doc) {
-          if (!doc.exists) return null;
-          return UserModel.fromFirestore(doc);
-        })
-        .handleError((e) {
-          // Firestore throws PERMISSION_DENIED after logout — ignore silently.
-          // _RootRouter will automatically redirect to LoginScreen.
-          debugPrint('userStream permission error (post-logout): $e');
-        });
+      if (!doc.exists) return null;
+      return UserModel.fromFirestore(doc);
+    }).handleError((e) {
+      debugPrint('userStream permission error (post-logout): $e');
+    });
   }
 
-  /// Fetch a user document as a [UserModel]. Returns null if not found.
   Future<UserModel?> getUserById(String uid) async {
     final doc = await _users.doc(uid).get();
     if (!doc.exists) return null;
     return UserModel.fromFirestore(doc);
   }
 
-  /// Fetch a rescuer document as a raw map. Returns null if not found.
   Future<Map<String, dynamic>?> getRescuerById(String uid) async {
     final doc = await _rescuers.doc(uid).get();
     if (!doc.exists) return null;
     return {'id': doc.id, ...doc.data() as Map<String, dynamic>};
   }
 
-  /// Update a single field on a user document (merge-safe).
   Future<void> updateUserField(String uid, String field, dynamic value) async {
     await _users.doc(uid).set({field: value}, SetOptions(merge: true));
   }
 
-  /// Returns the [limit] most-recent SOS requests by a given citizen.
   Future<List<SOSRequestModel>> getRecentSosByUser(
-    String uid, {
-    int limit = 5,
-  }) async {
+      String uid, {
+        int limit = 5,
+      }) async {
     final snap = await _sosRequests
         .where('citizen_id', isEqualTo: uid)
         .orderBy('created_at', descending: true)
@@ -333,11 +514,10 @@ class FirestoreService {
     return snap.docs.map((doc) => SOSRequestModel.fromFirestore(doc)).toList();
   }
 
-  /// Returns the [limit] most-recent reports by a given reporter.
   Future<List<ReportModel>> getRecentReportsByUser(
-    String uid, {
-    int limit = 5,
-  }) async {
+      String uid, {
+        int limit = 5,
+      }) async {
     final snap = await _reports
         .where('reporter_id', isEqualTo: uid)
         .orderBy('created_at', descending: true)
@@ -347,29 +527,25 @@ class FirestoreService {
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
-  // EXTENDED HELPERS ADDED FOR THE SCREENS (FIXES COMPILATION ERRORS)
+  // EXTENDED HELPERS
   // ═══════════════════════════════════════════════════════════════════════════
 
-  /// Updates fields inside the 'rescuers' collection (e.g. active_mission_count).
   Future<void> updateRescuer(String uid, Map<String, dynamic> data) async {
     await _rescuers.doc(uid).update(data);
   }
 
-  /// Fetches a specific mission by its ID.
   Future<MissionModel?> getMissionById(String missionId) async {
     final doc = await _missions.doc(missionId).get();
     if (!doc.exists) return null;
     return MissionModel.fromFirestore(doc);
   }
 
-  /// FIXED: Inalign sa unified PascalCase naming 'getSOSRequestById' para walang lito
   Future<SOSRequestModel?> getSOSRequestById(String sosId) async {
     final doc = await _sosRequests.doc(sosId).get();
     if (!doc.exists) return null;
     return SOSRequestModel.fromFirestore(doc);
   }
 
-  /// Fallback method for camelCase callers from the automated UI pipeline
   Future<SOSRequestModel?> getSosRequestById(String sosId) async {
     return getSOSRequestById(sosId);
   }
@@ -378,22 +554,13 @@ class FirestoreService {
   // MODERATOR STATISTICS
   // ═══════════════════════════════════════════════════════════════════════════
 
-  /// Real-time stream of aggregated statistics for a specific moderator.
-  /// Returns a map with: published, rejected, pending, avgReviewMinutes,
-  /// highConfidence, mediumConfidence, lowConfidence, recentActivity.
   Stream<Map<String, dynamic>> moderatorStatsStream(String moderatorId) {
-    // Combine two streams: reviewed reports (by this moderator) + all pending
     final reviewedStream = _reports
         .where('moderator_id', isEqualTo: moderatorId)
         .limit(50)
         .snapshots();
 
-    final pendingStream = _reports
-        .where('status', isEqualTo: 'pending')
-        .snapshots();
-
     return reviewedStream.asyncMap((reviewedSnap) async {
-      // Get pending count separately (one-time read to avoid double stream)
       final pendingSnap = await _reports
           .where('status', isEqualTo: 'pending')
           .count()
@@ -402,7 +569,6 @@ class FirestoreService {
 
       final reviewed = reviewedSnap.docs;
 
-      // Counts
       int published = 0;
       int rejected = 0;
       int highConfidence = 0;
@@ -420,11 +586,9 @@ class FirestoreService {
         final createdAt = data['created_at'] as Timestamp?;
         final publishedAt = data['published_at'] as Timestamp?;
 
-        // Count by status
         if (status == 'published') published++;
         if (status == 'rejected') rejected++;
 
-        // AI score breakdown (only published)
         if (status == 'published') {
           if (aiScore >= 75) {
             highConfidence++;
@@ -435,18 +599,16 @@ class FirestoreService {
           }
         }
 
-        // Avg review time
         if (createdAt != null && publishedAt != null) {
           final diffMinutes =
               publishedAt.toDate().difference(createdAt.toDate()).inSeconds /
-              60.0;
+                  60.0;
           if (diffMinutes >= 0) {
             totalReviewMinutes += diffMinutes;
             reviewedWithTime++;
           }
         }
 
-        // Recent activity (last 10)
         if (recentActivity.length < 10) {
           recentActivity.add({
             'id': doc.id,
@@ -471,16 +633,6 @@ class FirestoreService {
         'lowConfidence': lowConfidence,
         'recentActivity': recentActivity,
       };
-    });
-  }
-
-  /// Creates a new community post (citizen social post in community feed)
-  Future<void> createCommunityPost(Map<String, dynamic> data) async {
-    await _communityFeed.add({
-      ...data,
-      'created_at': FieldValue.serverTimestamp(),
-      'likes': 0,
-      'comments': 0,
     });
   }
 }
