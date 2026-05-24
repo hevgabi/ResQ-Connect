@@ -561,12 +561,12 @@ class _CitizenProfileScreenState extends State<CitizenProfileScreen> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             const Text(
-              'Report History',
+              'My Posts & Reports',
               style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
             ),
             const Divider(height: 16),
             FutureBuilder<List<ReportModel>>(
-              future: _firestoreService.getRecentReportsByUser(uid, limit: 5),
+              future: _firestoreService.getPostsByUser(uid, limit: 10),
               builder: (context, snapshot) {
                 if (snapshot.connectionState == ConnectionState.waiting) {
                   return const Center(child: CircularProgressIndicator());
@@ -574,7 +574,7 @@ class _CitizenProfileScreenState extends State<CitizenProfileScreen> {
                 final list = snapshot.data ?? [];
                 if (list.isEmpty) {
                   return const Text(
-                    'No reports submitted yet.',
+                    'No posts or reports yet.',
                     style: TextStyle(color: AppTheme.textSecondary),
                   );
                 }
@@ -584,11 +584,11 @@ class _CitizenProfileScreenState extends State<CitizenProfileScreen> {
                       dense: true,
                       contentPadding: EdgeInsets.zero,
                       leading: const Icon(
-                        Icons.report_outlined,
+                        Icons.article_outlined,
                         color: AppTheme.warningOrange,
                       ),
                       title: Text(
-                        r.title ?? r.type ?? 'Incident Report',
+                        r.title ?? r.type ?? 'Community Post',
                         style: const TextStyle(fontSize: 14),
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,

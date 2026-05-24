@@ -32,11 +32,20 @@ class LoadingOverlay extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // FIX: Stack previously used the default StackFit.loose. When isLoading
+    // switched to true, Flutter added Positioned.fill to the tree but the
+    // layout pass hadn't run yet. Mouse-tracking hit tests fired in the gap
+    // and reached the un-laid-out Positioned.fill → "RenderBox was not laid
+    // out" (box.dart:2251, mouse_tracker.dart:199).
+    //
+    // StackFit.expand gives the Stack tight constraints equal to its parent
+    // (the full-screen Navigator slot), so every child — including the
+    // overlay — is immediately measurable the moment it enters the tree.
+    // Positioned.fill is also removed: with StackFit.expand all non-
+    // positioned children already fill the Stack, so a plain Container works.
     return Stack(
-      children: [
-        child,
-        if (isLoading) Positioned.fill(child: _buildOverlay()),
-      ],
+      fit: StackFit.expand,
+      children: [child, if (isLoading) _buildOverlay()],
     );
   }
 
@@ -51,7 +60,8 @@ class LoadingOverlay extends StatelessWidget {
             borderRadius: BorderRadius.circular(16),
             boxShadow: [
               BoxShadow(
-                color: Colors.black.withValues(alpha: 0.15),
+                // FIX: .withValues() is deprecated — use .withAlpha() instead.
+                color: Colors.black.withAlpha(38),
                 blurRadius: 20,
                 offset: const Offset(0, 8),
               ),
@@ -100,7 +110,8 @@ class _LoadingDialog extends StatelessWidget {
           borderRadius: BorderRadius.circular(16),
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withValues(alpha: 0.15),
+              // FIX: .withValues() is deprecated — use .withAlpha() instead.
+              color: Colors.black.withAlpha(38),
               blurRadius: 20,
               offset: const Offset(0, 8),
             ),

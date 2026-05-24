@@ -155,8 +155,12 @@ class _ReportQueueCardState extends State<_ReportQueueCard> {
           .doc(authorId)
           .get();
       if (mounted) {
+        final d = doc.data();
+        final firstName = (d?['first_name'] as String?) ?? '';
+        final lastName = (d?['last_name'] as String?) ?? '';
+        final fullName = '$firstName $lastName'.trim();
         setState(() {
-          _authorName = (doc.data()?['display_name'] as String?) ?? 'Unknown';
+          _authorName = fullName.isNotEmpty ? fullName : 'Unknown';
         });
       }
     } catch (_) {

@@ -7,36 +7,47 @@ service cloud.firestore {
     // HELPER FUNCTIONS
     // ─────────────────────────────────────────────
 
-    /// Returns true if the request carries a valid Firebase Auth token.
     function isAuth() {
       return request.auth != null;
     }
 
-    /// Fetches the calling user's role from their users doc.
-    /// Costs 1 read per rule evaluation — used sparingly.
-    function getRole() {
-      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role;
+    function getUserData() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+    }
+
+    // Checks role AND approval — prevents pending/rejected users from acting
+    function isApprovedRole(role) {
+      return isAuth()
+        && getUserData().role == role
+        && getUserData().approval_status == 'approved'
+        && getUserData().is_active == true;
     }
 
     function isAdmin() {
-      return isAuth() && getRole() == 'admin';
+      return isApprovedRole('admin');
     }
 
     function isModerator() {
-      return isAuth() && getRole() == 'moderator';
+      return isApprovedRole('moderator');
     }
 
     function isRescuer() {
-      return isAuth() && getRole() == 'rescuer';
+      return isApprovedRole('rescuer');
     }
 
     function isCitizen() {
-      return isAuth() && getRole() == 'citizen';
+      return isApprovedRole('citizen');
     }
 
-    /// True when the caller owns the document (uid field == auth uid).
-    function isOwner(ownerField) {
-      return isAuth() && resource.data[ownerField] == request.auth.uid;
+    function isModOrAdmin() {
+      return isModerator() || isAdmin();
+    }
+
+    // Any fully approved + active user regardless of role
+    function isApproved() {
+      return isAuth()
+        && getUserData().approval_status == 'approved'
+        && getUserData().is_active == true;
     }
 
     // ─────────────────────────────────────────────
@@ -44,16 +55,26 @@ service cloud.firestore {
     // ─────────────────────────────────────────────
     match /users/{uid} {
 
-      // Any authenticated user may read their own profile.
+      // Any authenticated user can read their own profile
+      // (includes pending users — needed for pending approval screen)
       allow read: if isAuth() && request.auth.uid == uid;
 
-      // Users may update their own doc, but CANNOT touch role or is_active.
+      // FIX: Moderators need to read other users' profiles to show
+      // author names in the report queue and review detail screen.
+      allow read: if isModOrAdmin();
+
+      // Allow create during registration — user creates their own doc
+      allow create: if isAuth() && request.auth.uid == uid;
+
+      // Users may update their own doc but CANNOT touch
+      // role, is_active, or approval_status
       allow update: if isAuth()
         && request.auth.uid == uid
-        && !('role'      in request.resource.data.diff(resource.data).affectedKeys())
-        && !('is_active' in request.resource.data.diff(resource.data).affectedKeys());
+        && !('role'            in request.resource.data.diff(resource.data).affectedKeys())
+        && !('is_active'       in request.resource.data.diff(resource.data).affectedKeys())
+        && !('approval_status' in request.resource.data.diff(resource.data).affectedKeys());
 
-      // Admins have full read/write access to all user documents.
+      // Admins have full read/write access to all user documents
       allow read, write: if isAdmin();
     }
 
@@ -62,17 +83,20 @@ service cloud.firestore {
     // ─────────────────────────────────────────────
     match /rescuers/{rescuerId} {
 
-      // Citizens may read any rescuer doc (supports live tracking in the app).
-      allow read: if isAuth() && (isCitizen() || isRescuer() || isAdmin());
+      // All approved users can read rescuer docs (live tracking)
+      allow read: if isApproved();
 
-      // A rescuer may update only their own document.
-      // Writable fields: is_on_duty, lat, lng, active_mission_count.
+      // Rescuer can create their own doc during registration
+      allow create: if isAuth() && request.auth.uid == rescuerId;
+
       allow update: if isRescuer()
         && request.auth.uid == rescuerId
         && request.resource.data.diff(resource.data).affectedKeys()
-            .hasOnly(['is_on_duty', 'lat', 'lng', 'active_mission_count']);
+            .hasOnly([
+              'is_on_duty', 'lat', 'lng', 'active_mission_count',
+              'agency_name', 'badge_number', 'team_id'
+            ]);
 
-      // Admins have full read/write access.
       allow read, write: if isAdmin();
     }
 
@@ -81,25 +105,27 @@ service cloud.firestore {
     // ─────────────────────────────────────────────
     match /sos_requests/{sosId} {
 
-      // Citizens may create an SOS only for themselves.
-      allow create: if isAuth()
-        && isCitizen()
+      // Citizens may create an SOS only for themselves
+      allow create: if isCitizen()
         && request.resource.data.citizen_id == request.auth.uid;
 
-      // Citizens may read their own SOS requests.
-      allow read: if isAuth()
-        && isCitizen()
+      // Citizens may read their own SOS requests
+      allow read: if isCitizen()
         && resource.data.citizen_id == request.auth.uid;
 
-      // Rescuers may read all SOS requests and update
-      // the status and assigned_rescuer_id fields only.
+      // Citizens may cancel their own SOS (update status to 'cancelled')
+      allow update: if isCitizen()
+        && resource.data.citizen_id == request.auth.uid
+        && request.resource.data.diff(resource.data).affectedKeys()
+            .hasOnly(['status']);
+
+      // Rescuers may read all SOS requests and update status fields
       allow read: if isRescuer();
       allow update: if isRescuer()
         && request.resource.data.diff(resource.data).affectedKeys()
-            .hasOnly(['status', 'assigned_rescuer_id']);
+            .hasOnly(['status', 'assigned_rescuer_id', 'resolved_at']);
 
-      // Admins have full read/write access.
-      allow read, write: if isAdmin();
+      allow read, write: if isModOrAdmin();
     }
 
     // ─────────────────────────────────────────────
@@ -107,27 +133,20 @@ service cloud.firestore {
     // ─────────────────────────────────────────────
     match /missions/{missionId} {
 
-      // Rescuers may create missions for themselves.
+      // Rescuers may create missions for themselves
       allow create: if isRescuer()
         && request.resource.data.rescuer_id == request.auth.uid;
 
-      // Rescuers may update their own missions.
-      allow update: if isRescuer()
+      // Rescuers may read and update their own missions
+      allow read, update: if isRescuer()
         && resource.data.rescuer_id == request.auth.uid;
 
-      // Rescuers may also read their own missions.
-      allow read: if isRescuer()
-        && resource.data.rescuer_id == request.auth.uid;
-
-      // Citizens may read a mission only when the linked SOS belongs to them.
-      // We resolve the parent SOS document to check citizen_id.
-      allow read: if isAuth()
-        && isCitizen()
+      // Citizens may read a mission only when the linked SOS belongs to them
+      allow read: if isCitizen()
         && get(/databases/$(database)/documents/sos_requests/$(resource.data.sos_id))
               .data.citizen_id == request.auth.uid;
 
-      // Admins have full read/write access.
-      allow read, write: if isAdmin();
+      allow read, write: if isModOrAdmin();
     }
 
     // ─────────────────────────────────────────────
@@ -135,25 +154,33 @@ service cloud.firestore {
     // ─────────────────────────────────────────────
     match /reports/{reportId} {
 
-      // Citizens may create a report only for themselves.
-      allow create: if isAuth()
-        && isCitizen()
-        && request.resource.data.author_id == request.auth.uid;
+      // FIX: Citizens/approved users can create reports.
+      // Citizen posts use reporter_id; incident reports use author_id.
+      // We accept either so both flows work without dual writes.
+      allow create: if isApproved()
+        && (
+          request.resource.data.reporter_id == request.auth.uid
+          || request.resource.data.author_id == request.auth.uid
+        );
 
-      // Citizens may read only their own reports.
-      allow read: if isAuth()
-        && isCitizen()
-        && resource.data.author_id == request.auth.uid;
+      // FIX: Authors can read their own reports — check both id fields
+      // since citizen posts store reporter_id, incident reports store author_id.
+      allow read: if isApproved()
+        && (
+          resource.data.reporter_id == request.auth.uid
+          || resource.data.author_id == request.auth.uid
+        );
 
-      // Moderators may read all reports and update
-      // the moderation fields only.
-      allow read: if isModerator();
-      allow update: if isModerator()
+      // Rescuers can read all reports
+      allow read: if isRescuer();
+
+      // Moderators can read all and update moderation fields only
+      allow read: if isModOrAdmin();
+      allow update: if isModOrAdmin()
         && request.resource.data.diff(resource.data).affectedKeys()
-            .hasOnly(['status', 'reviewed_by', 'rejection_reason']);
+            .hasOnly(['status', 'reviewed_by', 'rejection_reason', 'moderator_id', 'published_at']);
 
-      // Admins have full read/write access.
-      allow read, write: if isAdmin();
+      allow delete: if isAdmin();
     }
 
     // ─────────────────────────────────────────────
@@ -161,22 +188,35 @@ service cloud.firestore {
     // ─────────────────────────────────────────────
     match /community_feed/{feedId} {
 
-      // All authenticated users can read the community feed.
-      allow read: if isAuth();
+      // All approved users can read the feed
+      allow read: if isApproved();
 
-      // Only moderators and admins may write (publish/remove entries).
-      allow write: if isModerator() || isAdmin();
+      // Moderators write to community_feed when they publish a report
+      allow create, update: if isModOrAdmin();
+
+      // FIX: Accept both author_id and reporter_id for citizen-originated posts
+      allow create: if isApproved()
+        && (
+          request.resource.data.author_id == request.auth.uid
+          || request.resource.data.reporter_id == request.auth.uid
+        );
+
+      // Authors can update/delete their own posts
+      allow update, delete: if isApproved()
+        && (
+          resource.data.author_id == request.auth.uid
+          || resource.data.reporter_id == request.auth.uid
+        );
+
+      // Mod/admin can update or delete any post (moderation)
+      allow update, delete: if isModOrAdmin();
     }
 
     // ─────────────────────────────────────────────
     // evacuation_centers/{centerId}
     // ─────────────────────────────────────────────
     match /evacuation_centers/{centerId} {
-
-      // All authenticated users can read evacuation center data.
-      allow read: if isAuth();
-
-      // Only admins may create, update, or delete evacuation centers.
+      allow read: if isApproved();
       allow write: if isAdmin();
     }
 
@@ -184,12 +224,43 @@ service cloud.firestore {
     // alerts/{alertId}
     // ─────────────────────────────────────────────
     match /alerts/{alertId} {
-
-      // All authenticated users can read alerts.
-      allow read: if isAuth();
-
-      // Only admins may create, update, or delete alerts.
+      allow read: if isApproved();
       allow write: if isAdmin();
+    }
+
+    // ─────────────────────────────────────────────
+    // chats/{chatId} & messages subcollection
+    // ─────────────────────────────────────────────
+    match /chats/{chatId} {
+      allow read, write: if isAuth()
+        && request.auth.uid in resource.data.participants;
+
+      allow create: if isAuth()
+        && request.auth.uid in request.resource.data.participants;
+
+      match /messages/{messageId} {
+        allow read, write: if isAuth()
+          && request.auth.uid in get(/databases/$(database)/documents/chats/$(chatId))
+              .data.participants;
+      }
+
+      allow read, write: if isAdmin();
+    }
+
+    // ─────────────────────────────────────────────
+    // system_logs/{logId}
+    // ─────────────────────────────────────────────
+    match /system_logs/{logId} {
+      allow create: if isAuth();
+      allow read: if isAdmin();
+      allow update, delete: if false;
+    }
+
+    // ─────────────────────────────────────────────
+    // DENY ALL — catch-all for unlisted collections
+    // ─────────────────────────────────────────────
+    match /{document=**} {
+      allow read, write: if false;
     }
 
   }

@@ -10,21 +10,25 @@ import '../../providers/auth_provider.dart' as app_auth;
 import '../../services/firestore_service.dart';
 import '../../theme/app_theme.dart';
 import '../entry/login_screen.dart';
+import '../admin/admin_rescuers_screen.dart';
+import '../admin/admin_evac_centers_screen.dart';
+import '../admin/admin_incidents_screen.dart';
+import '../admin/admin_approvals_screen.dart';
 
 // =============================================================================
 // ROLE ENUM
 // =============================================================================
 
-enum HamburgerRole { citizen, rescuer, moderator }
+enum HamburgerRole { citizen, rescuer, moderator, admin }
 
 // =============================================================================
 // PUBLIC HELPER — call this from any screen
 // =============================================================================
 
 void showHamburgerMenu(
-  BuildContext context, {
-  HamburgerRole role = HamburgerRole.citizen,
-}) {
+    BuildContext context, {
+      HamburgerRole role = HamburgerRole.citizen,
+    }) {
   Navigator.push(
     context,
     MaterialPageRoute(builder: (_) => HamburgerMenuScreen(role: role)),
@@ -56,16 +60,16 @@ class _HamburgerMenuScreenState extends State<HamburgerMenuScreen> {
           .userStream(uid)
           .listen(
             (user) {
-              if (mounted) setState(() => _user = user);
-            },
-            onError: (e) {
-              debugPrint(
-                'HamburgerMenuScreen userStream error (post-logout): $e',
-              );
-              _userSub?.cancel();
-              if (mounted) Navigator.of(context).pop();
-            },
+          if (mounted) setState(() => _user = user);
+        },
+        onError: (e) {
+          debugPrint(
+            'HamburgerMenuScreen userStream error (post-logout): $e',
           );
+          _userSub?.cancel();
+          if (mounted) Navigator.of(context).pop();
+        },
+      );
     }
   }
 
@@ -81,6 +85,8 @@ class _HamburgerMenuScreenState extends State<HamburgerMenuScreen> {
         return const Color(0xFF1FAA59);
       case HamburgerRole.moderator:
         return const Color(0xFF6A1B9A);
+      case HamburgerRole.admin:
+        return const Color(0xFF0D47A1);
       case HamburgerRole.citizen:
       default:
         return AppTheme.primaryBlue;
@@ -103,12 +109,90 @@ class _HamburgerMenuScreenState extends State<HamburgerMenuScreen> {
       ),
       body: ListView(
         children: [
-          // ── Profile Header Card ──────────────────────────────────────
+          // ── Profile Header Card ──────────────────────────────────────────
           _ProfileHeaderTile(user: user),
 
           const SizedBox(height: 8),
 
-          // ── Role-specific section ────────────────────────────────────
+          // ── Admin Navigation Section ─────────────────────────────────────
+          if (widget.role == HamburgerRole.admin) ...[
+            _SectionHeader(title: 'Admin Navigation'),
+            _MenuTile(
+              icon: Icons.people_outline,
+              iconColor: const Color(0xFF0D47A1),
+              title: 'Rescuers',
+              subtitle: 'View and manage all rescuers',
+              onTap: () => Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => const AdminRescuersScreen(),
+                ),
+              ),
+            ),
+            _MenuTile(
+              icon: Icons.location_city_outlined,
+              iconColor: const Color(0xFF0D47A1),
+              title: 'Evac Centers',
+              subtitle: 'Manage evacuation centers',
+              onTap: () => Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => const AdminEvacCentersScreen(),
+                ),
+              ),
+            ),
+            _MenuTile(
+              icon: Icons.warning_amber_outlined,
+              iconColor: const Color(0xFF0D47A1),
+              title: 'Incidents',
+              subtitle: 'View all SOS incidents',
+              onTap: () => Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => const AdminIncidentsScreen(),
+                ),
+              ),
+            ),
+            StreamBuilder<int>(
+              stream:
+              FirestoreService.instance.pendingApprovalsCountStream(),
+              builder: (context, snapshot) {
+                final count = snapshot.data ?? 0;
+                return _MenuTile(
+                  icon: Icons.how_to_reg_outlined,
+                  iconColor: const Color(0xFF0D47A1),
+                  title: 'Approvals',
+                  subtitle: 'Review pending registrations',
+                  badge: count > 0 ? '$count pending' : null,
+                  onTap: () => Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => const AdminApprovalsScreen(),
+                    ),
+                  ),
+                );
+              },
+            ),
+            _MenuTile(
+              icon: Icons.campaign_outlined,
+              iconColor: const Color(0xFF0D47A1),
+              title: 'Broadcast Alert',
+              subtitle: 'Send emergency alerts to users',
+              badge: 'Coming Soon',
+              onTap: () => _showComingSoon(context),
+            ),
+            _MenuTile(
+              icon: Icons.bar_chart_outlined,
+              iconColor: const Color(0xFF0D47A1),
+              title: 'Reports',
+              subtitle: 'View incident and rescuer reports',
+              badge: 'Coming Soon',
+              onTap: () => _showComingSoon(context),
+            ),
+            const SizedBox(height: 8),
+          ],
+
+          // ── Role-specific support section ────────────────────────────────
           if (widget.role == HamburgerRole.citizen) ...[
             _SectionHeader(title: 'Support'),
             _MenuTile(
@@ -148,7 +232,7 @@ class _HamburgerMenuScreenState extends State<HamburgerMenuScreen> {
             const SizedBox(height: 8),
           ],
 
-          // ── Account Section ──────────────────────────────────────────
+          // ── Account Section ──────────────────────────────────────────────
           _SectionHeader(title: 'Account'),
           _MenuTile(
             icon: Icons.person_outline,
@@ -174,7 +258,7 @@ class _HamburgerMenuScreenState extends State<HamburgerMenuScreen> {
 
           const SizedBox(height: 8),
 
-          // ── Notifications Section ────────────────────────────────────
+          // ── Notifications Section ────────────────────────────────────────
           _SectionHeader(title: 'Notifications'),
           _SwitchMenuTile(
             icon: Icons.notifications_outlined,
@@ -193,7 +277,7 @@ class _HamburgerMenuScreenState extends State<HamburgerMenuScreen> {
 
           const SizedBox(height: 8),
 
-          // ── Privacy & Security Section ───────────────────────────────
+          // ── Privacy & Security Section ───────────────────────────────────
           _SectionHeader(title: 'Privacy & Security'),
           _MenuTile(
             icon: Icons.shield_outlined,
@@ -212,7 +296,7 @@ class _HamburgerMenuScreenState extends State<HamburgerMenuScreen> {
 
           const SizedBox(height: 8),
 
-          // ── About Section ────────────────────────────────────────────
+          // ── About Section ────────────────────────────────────────────────
           _SectionHeader(title: 'About'),
           _MenuTile(
             icon: Icons.info_outline,
@@ -224,7 +308,7 @@ class _HamburgerMenuScreenState extends State<HamburgerMenuScreen> {
 
           const SizedBox(height: 8),
 
-          // ── Account Actions ──────────────────────────────────────────
+          // ── Account Actions ──────────────────────────────────────────────
           _SectionHeader(title: 'Account Actions'),
           _MenuTile(
             icon: Icons.logout,
@@ -242,7 +326,7 @@ class _HamburgerMenuScreenState extends State<HamburgerMenuScreen> {
     );
   }
 
-  // ── Dialogs ──────────────────────────────────────────────────────────────────
+  // ── Dialogs ──────────────────────────────────────────────────────────────
 
   void _showLogoutDialog(BuildContext context) {
     final authProvider = context.read<app_auth.AuthProvider>();
@@ -277,7 +361,7 @@ class _HamburgerMenuScreenState extends State<HamburgerMenuScreen> {
               if (context.mounted) {
                 Navigator.of(context).pushAndRemoveUntil(
                   MaterialPageRoute(builder: (_) => const LoginScreen()),
-                  (route) => false,
+                      (route) => false,
                 );
               }
             },
@@ -305,81 +389,82 @@ class _HamburgerMenuScreenState extends State<HamburgerMenuScreen> {
           ),
           content: sent
               ? const Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(
-                      Icons.mark_email_read_outlined,
-                      color: AppTheme.successGreen,
-                      size: 48,
-                    ),
-                    SizedBox(height: 12),
-                    Text(
-                      'Password reset email sent! Check your inbox.',
-                      textAlign: TextAlign.center,
-                    ),
-                  ],
-                )
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                Icons.mark_email_read_outlined,
+                color: AppTheme.successGreen,
+                size: 48,
+              ),
+              SizedBox(height: 12),
+              Text(
+                'Password reset email sent! Check your inbox.',
+                textAlign: TextAlign.center,
+              ),
+            ],
+          )
               : Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text(
-                      "We'll send a password reset link to your email address.",
-                      style: TextStyle(color: AppTheme.textSecondary),
-                    ),
-                    const SizedBox(height: 16),
-                    TextField(
-                      controller: emailController
-                        ..text = FirebaseAuth.instance.currentUser?.email ?? '',
-                      keyboardType: TextInputType.emailAddress,
-                      decoration: InputDecoration(
-                        labelText: 'Email',
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(10),
-                        ),
-                      ),
-                    ),
-                  ],
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                "We'll send a password reset link to your email address.",
+                style: TextStyle(color: AppTheme.textSecondary),
+              ),
+              const SizedBox(height: 16),
+              TextField(
+                controller: emailController
+                  ..text =
+                      FirebaseAuth.instance.currentUser?.email ?? '',
+                keyboardType: TextInputType.emailAddress,
+                decoration: InputDecoration(
+                  labelText: 'Email',
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(10),
+                  ),
                 ),
+              ),
+            ],
+          ),
           actions: sent
               ? [
-                  ElevatedButton(
-                    style: ElevatedButton.styleFrom(
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(10),
-                      ),
-                    ),
-                    onPressed: () => Navigator.pop(ctx),
-                    child: const Text('Done'),
-                  ),
-                ]
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(10),
+                ),
+              ),
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('Done'),
+            ),
+          ]
               : [
-                  TextButton(
-                    onPressed: () => Navigator.pop(ctx),
-                    child: const Text('Cancel'),
-                  ),
-                  ElevatedButton(
-                    style: ElevatedButton.styleFrom(
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(10),
-                      ),
-                    ),
-                    onPressed: () async {
-                      try {
-                        await FirebaseAuth.instance.sendPasswordResetEmail(
-                          email: emailController.text.trim(),
-                        );
-                        setState(() => sent = true);
-                      } catch (e) {
-                        Navigator.pop(ctx);
-                        ScaffoldMessenger.of(
-                          context,
-                        ).showSnackBar(SnackBar(content: Text('Error: $e')));
-                      }
-                    },
-                    child: const Text('Send Link'),
-                  ),
-                ],
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('Cancel'),
+            ),
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(10),
+                ),
+              ),
+              onPressed: () async {
+                try {
+                  await FirebaseAuth.instance.sendPasswordResetEmail(
+                    email: emailController.text.trim(),
+                  );
+                  setState(() => sent = true);
+                } catch (e) {
+                  Navigator.pop(ctx);
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text('Error: $e')),
+                  );
+                }
+              },
+              child: const Text('Send Link'),
+            ),
+          ],
         ),
       ),
     );
@@ -461,13 +546,13 @@ class _ProfileHeaderTile extends StatelessWidget {
                 : null,
             child: user?.photoUrl == null
                 ? Text(
-                    _initials().isNotEmpty ? _initials() : '?',
-                    style: TextStyle(
-                      fontSize: 22,
-                      fontWeight: FontWeight.bold,
-                      color: _roleColor(),
-                    ),
-                  )
+              _initials().isNotEmpty ? _initials() : '?',
+              style: TextStyle(
+                fontSize: 22,
+                fontWeight: FontWeight.bold,
+                color: _roleColor(),
+              ),
+            )
                 : null,
           ),
           const SizedBox(width: 14),
@@ -595,29 +680,30 @@ class _MenuTile extends StatelessWidget {
             ),
             trailing: badge != null
                 ? Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 8,
-                      vertical: 3,
-                    ),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFF546E7A).withValues(alpha: 0.12),
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: Text(
-                      badge!,
-                      style: const TextStyle(
-                        fontSize: 10,
-                        fontWeight: FontWeight.w700,
-                        color: Color(0xFF546E7A),
-                      ),
-                    ),
-                  )
+              padding: const EdgeInsets.symmetric(
+                horizontal: 8,
+                vertical: 3,
+              ),
+              decoration: BoxDecoration(
+                color:
+                const Color(0xFF546E7A).withValues(alpha: 0.12),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Text(
+                badge!,
+                style: const TextStyle(
+                  fontSize: 10,
+                  fontWeight: FontWeight.w700,
+                  color: Color(0xFF546E7A),
+                ),
+              ),
+            )
                 : showChevron
                 ? const Icon(
-                    Icons.chevron_right,
-                    color: AppTheme.textSecondary,
-                    size: 20,
-                  )
+              Icons.chevron_right,
+              color: AppTheme.textSecondary,
+              size: 20,
+            )
                 : null,
             onTap: onTap,
           ),

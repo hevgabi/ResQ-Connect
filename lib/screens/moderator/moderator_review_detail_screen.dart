@@ -61,7 +61,6 @@ class _ModeratorReviewDetailScreenState
         _isLoading = false;
       });
 
-      // FIX: Ginawang dynamic fallback mula reporter_id o author_id para sigurado ang loading ng author profile
       final authorId = (data['reporter_id'] ?? data['author_id']) as String?;
       if (authorId != null && authorId.isNotEmpty) {
         final userDoc = await FirebaseFirestore.instance
@@ -69,9 +68,12 @@ class _ModeratorReviewDetailScreenState
             .doc(authorId)
             .get();
         if (mounted) {
+          final d = userDoc.data();
+          final firstName = (d?['first_name'] as String?) ?? '';
+          final lastName = (d?['last_name'] as String?) ?? '';
+          final fullName = '$firstName $lastName'.trim();
           setState(() {
-            _authorName =
-                (userDoc.data()?['display_name'] as String?) ?? 'Unknown';
+            _authorName = fullName.isNotEmpty ? fullName : 'Unknown';
           });
         }
       } else {
@@ -195,6 +197,8 @@ class _ModeratorReviewDetailScreenState
         'reviewed_by': uid,
         'reviewed_at': FieldValue.serverTimestamp(),
       });
+      // Notification to citizen is handled inside updateReport listener
+      // in firestore_service — ensure Firestore rules allow user_notifications writes
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
@@ -220,6 +224,12 @@ class _ModeratorReviewDetailScreenState
 
   @override
   Widget build(BuildContext context) {
+    // FIX: Inalis ang Column sa bottomNavigationBar. BottomNavigationBar ay
+    // hindi designed para i-wrap sa Column inside bottomNavigationBar —
+    // nagdudulot ito ng box.dart:2251 hasSize assertion failure sa bawat
+    // rebuild at mouse event. Ngayon, ang action bar ay nasa loob ng body
+    // (bilang pinakababang child ng Column), at ang ModeratorBottomNav ay
+    // direkta na ang bottomNavigationBar.
     return Scaffold(
       backgroundColor: const Color(0xFFF5F7FA),
       appBar: AppBar(
@@ -233,6 +243,8 @@ class _ModeratorReviewDetailScreenState
           onPressed: () => Navigator.pop(context),
         ),
       ),
+      // FIX: Body is now a Column so the action bar is pinned above the
+      // bottom nav without needing a Column in bottomNavigationBar.
       body: _isLoading
           ? const Center(
               child: CircularProgressIndicator(color: Color(0xFF0D47A1)),
@@ -244,21 +256,21 @@ class _ModeratorReviewDetailScreenState
                 style: const TextStyle(color: Color(0xFFD7263D)),
               ),
             )
-          : _buildBody(),
-      bottomNavigationBar: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          _buildActionBar(),
-          const ModeratorBottomNav(currentIndex: 0),
-        ],
-      ),
+          : Column(
+              children: [
+                Expanded(child: _buildBody()),
+                _buildActionBar(),
+              ],
+            ),
+      // FIX: Direct child — no Column wrapper — so Scaffold gives it proper
+      // height constraints and MediaQuery bottom padding is handled correctly.
+      bottomNavigationBar: const ModeratorBottomNav(currentIndex: 0),
     );
   }
 
   Widget _buildBody() {
     final data = _reportData!;
 
-    // FIX: Ginawang dynamic ang array checking para sa photo_urls o media_urls
     final mediaUrls =
         ((data['photo_urls'] ?? data['media_urls']) as List<dynamic>?)
             ?.map((e) => e.toString())
@@ -266,11 +278,15 @@ class _ModeratorReviewDetailScreenState
         [];
 
     final reportType =
-        (data['category'] ?? data['type'] as String?) ?? 'General';
+        (data['category'] as String?) ?? (data['type'] as String?) ?? 'General';
     final title = (data['title'] as String?) ?? 'Incident Report';
-    final bodyText = (data['body'] ?? data['description'] as String?) ?? '';
-    final lat = data['latitude'] as double?;
-    final lng = data['longitude'] as double?;
+    final bodyText =
+        (data['body'] as String?) ??
+        (data['text'] as String?) ??
+        (data['description'] as String?) ??
+        '';
+    final lat = (data['latitude'] as num?)?.toDouble();
+    final lng = (data['longitude'] as num?)?.toDouble();
     final createdAt = (data['created_at'] as Timestamp?)?.toDate();
     final aiScore = (data['ai_score'] as num?)?.toInt() ?? 0;
 
@@ -379,7 +395,7 @@ class _ModeratorReviewDetailScreenState
             ),
           ),
 
-          const SizedBox(height: 100),
+          const SizedBox(height: 24),
         ],
       ),
     );
@@ -392,7 +408,6 @@ class _ModeratorReviewDetailScreenState
         color: Colors.white,
         boxShadow: [
           BoxShadow(
-            // FIX: Pinalitan ang deprecated .withValues() patungong standard .withAlpha()
             color: Colors.black.withAlpha(20),
             blurRadius: 12,
             offset: const Offset(0, -4),
@@ -582,7 +597,6 @@ class _SectionCard extends StatelessWidget {
         borderRadius: BorderRadius.circular(16),
         boxShadow: [
           BoxShadow(
-            // FIX: Deprecated .withValues() fixed
             color: Colors.black.withAlpha(12),
             blurRadius: 8,
             offset: const Offset(0, 3),
@@ -669,7 +683,6 @@ class _AiScoreExplanation extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        // FIX: Deprecated .withValues() fixed
         color: _color.withAlpha(20),
         borderRadius: BorderRadius.circular(10),
         border: Border.all(color: _color.withAlpha(76)),

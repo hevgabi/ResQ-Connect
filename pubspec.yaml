@@ -35,30 +35,29 @@ dependencies:
   firebase_core: ^3.6.0
   firebase_auth: ^5.3.1
   cloud_firestore: ^5.4.4
-  firebase_storage: ^12.3.2
 
   # Google Sign-In
-  google_sign_in: ^6.2.1
+  google_sign_in: 6.2.1
 
   # Maps & Location
-  google_maps_flutter: ^2.9.0
-  geolocator: ^13.0.1
+  google_maps_flutter: ^2.17.0
+  geolocator: ^14.0.1
   geocoding: ^3.0.0
 
   # State Management
-  provider: ^6.1.2
+  provider: ^6.1.5+1
 
   # Media
-  image_picker: ^1.1.2
+  image_picker: ^1.2.2
   video_player: ^2.9.1
   cached_network_image: ^3.4.1
 
   # Utils
   uuid: ^4.5.1
-  intl: ^0.19.0
-  shared_preferences: ^2.3.2
+  intl: ^0.20.2
+  shared_preferences: ^2.5.5
   permission_handler: ^11.3.1
-  http: ^1.2.2
+  http: ^1.6.0
 
 
   # The following adds the Cupertino Icons font to your application.
@@ -69,6 +68,7 @@ dependencies:
   timeago: ^3.7.1
   share_plus: ^13.1.0
   url_launcher: ^6.3.2
+  http_parser: ^4.1.2
 
 dev_dependencies:
   flutter_test:

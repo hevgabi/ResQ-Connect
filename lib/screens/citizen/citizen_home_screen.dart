@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:math';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart' hide AuthProvider;
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:timeago/timeago.dart' as timeago;
@@ -16,7 +17,12 @@ import '../../widgets/error_banner.dart';
 import '../../widgets/empty_state.dart';
 import '../citizen/alerts_screen.dart';
 import '../citizen/emergency_hotlines_screen.dart';
-import '../settings/hamburger_menu_screen.dart'; // i-adjust path depende sa location
+import '../citizen/create_post_screen.dart';
+import '../settings/hamburger_menu_screen.dart';
+
+// =============================================================================
+// SKELETON BOX
+// =============================================================================
 
 class _SkeletonBox extends StatefulWidget {
   final double width;
@@ -72,6 +78,154 @@ class _SkeletonBoxState extends State<_SkeletonBox>
   }
 }
 
+// =============================================================================
+// SLIDE-IN TOAST NOTIFICATION
+// =============================================================================
+
+class _NotifToast extends StatefulWidget {
+  final String title;
+  final String message;
+  final bool isApproved;
+  final VoidCallback onDismiss;
+
+  const _NotifToast({
+    required this.title,
+    required this.message,
+    required this.isApproved,
+    required this.onDismiss,
+  });
+
+  @override
+  State<_NotifToast> createState() => _NotifToastState();
+}
+
+class _NotifToastState extends State<_NotifToast>
+    with SingleTickerProviderStateMixin {
+  late AnimationController _ctrl;
+  late Animation<Offset> _slide;
+  late Animation<double> _fade;
+
+  @override
+  void initState() {
+    super.initState();
+    _ctrl = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 400),
+    );
+    _slide = Tween<Offset>(
+      begin: const Offset(0, -1),
+      end: Offset.zero,
+    ).animate(CurvedAnimation(parent: _ctrl, curve: Curves.easeOutCubic));
+    _fade = Tween<double>(begin: 0, end: 1).animate(_ctrl);
+
+    _ctrl.forward();
+
+    // Auto dismiss after 4 seconds
+    Future.delayed(const Duration(seconds: 4), () {
+      if (mounted) _dismiss();
+    });
+  }
+
+  void _dismiss() {
+    _ctrl.reverse().then((_) {
+      if (mounted) widget.onDismiss();
+    });
+  }
+
+  @override
+  void dispose() {
+    _ctrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final color = widget.isApproved
+        ? const Color(0xFF1FAA59)
+        : const Color(0xFFD7263D);
+    final icon = widget.isApproved
+        ? Icons.check_circle_rounded
+        : Icons.cancel_rounded;
+
+    return SlideTransition(
+      position: _slide,
+      child: FadeTransition(
+        opacity: _fade,
+        child: GestureDetector(
+          onTap: _dismiss,
+          child: Container(
+            margin: const EdgeInsets.fromLTRB(16, 0, 16, 0),
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(color: color.withValues(alpha: 0.3)),
+              boxShadow: [
+                BoxShadow(
+                  color: color.withValues(alpha: 0.15),
+                  blurRadius: 16,
+                  offset: const Offset(0, 4),
+                ),
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.08),
+                  blurRadius: 8,
+                  offset: const Offset(0, 2),
+                ),
+              ],
+            ),
+            child: Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: color.withValues(alpha: 0.1),
+                    shape: BoxShape.circle,
+                  ),
+                  child: Icon(icon, color: color, size: 20),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        widget.title,
+                        style: TextStyle(
+                          fontWeight: FontWeight.w700,
+                          fontSize: 13,
+                          color: color,
+                        ),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        widget.message,
+                        style: const TextStyle(
+                          fontSize: 12,
+                          color: Color(0xFF546E7A),
+                          height: 1.3,
+                        ),
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Icon(Icons.close, size: 16, color: Colors.grey.shade400),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// =============================================================================
+// CITIZEN HOME SCREEN
+// =============================================================================
+
 class CitizenHomeScreen extends StatefulWidget {
   const CitizenHomeScreen({super.key});
 
@@ -97,10 +251,69 @@ class _CitizenHomeScreenState extends State<CitizenHomeScreen> {
 
   final _refreshIndicatorKey = GlobalKey<RefreshIndicatorState>();
 
+  // ── Notification toast state ─────────────────────────────────────────────
+  StreamSubscription<List<Map<String, dynamic>>>? _notifSub;
+  final Set<String> _seenNotifIds = {};
+  // Queue of toasts to show one at a time
+  final List<Map<String, dynamic>> _toastQueue = [];
+  bool _showingToast = false;
+  Map<String, dynamic>? _currentToast;
+
   @override
   void initState() {
     super.initState();
     _initLocation();
+    _listenNotifications();
+  }
+
+  void _listenNotifications() {
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    if (uid == null) return;
+
+    _notifSub = FirestoreService.instance
+        .citizenNotificationsStream(uid)
+        .listen((posts) {
+          for (final post in posts) {
+            final id = post['id'] as String;
+            if (!_seenNotifIds.contains(id)) {
+              _seenNotifIds.add(id);
+              _toastQueue.add(post);
+            }
+          }
+          if (!_showingToast && _toastQueue.isNotEmpty) {
+            _showNextToast();
+          }
+        });
+  }
+
+  void _showNextToast() {
+    if (_toastQueue.isEmpty || !mounted) return;
+    setState(() {
+      _showingToast = true;
+      _currentToast = _toastQueue.removeAt(0);
+    });
+  }
+
+  void _dismissToast() {
+    if (!mounted) return;
+    final id = _currentToast?['id'] as String?;
+    if (id != null) {
+      FirestoreService.instance.markReportNotifRead(id);
+    }
+    setState(() {
+      _showingToast = false;
+      _currentToast = null;
+    });
+    // Show next toast if any, after a short gap
+    if (_toastQueue.isNotEmpty) {
+      Future.delayed(const Duration(milliseconds: 300), _showNextToast);
+    }
+  }
+
+  @override
+  void dispose() {
+    _notifSub?.cancel();
+    super.dispose();
   }
 
   Future<void> _initLocation() async {
@@ -215,49 +428,81 @@ class _CitizenHomeScreenState extends State<CitizenHomeScreen> {
     return Scaffold(
       backgroundColor: _bg,
       appBar: _buildAppBar(context),
-      body: RefreshIndicator(
-        key: _refreshIndicatorKey,
-        color: _blue,
-        onRefresh: _onRefresh,
-        child: ListView(
-          padding: const EdgeInsets.only(bottom: 100),
-          children: [
-            _buildAlertBanners(),
-            const SizedBox(height: 16),
-            _buildGreeting(auth),
-            const SizedBox(height: 16),
-            const SizedBox(height: 16),
-            _buildPostComposer(auth),
-            const SizedBox(height: 20),
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  const Text(
-                    'Community Feed',
-                    style: TextStyle(
-                      fontSize: 17,
-                      fontWeight: FontWeight.w700,
-                      color: Color(0xFF1A237E),
-                    ),
+      body: Stack(
+        children: [
+          RefreshIndicator(
+            key: _refreshIndicatorKey,
+            color: _blue,
+            onRefresh: _onRefresh,
+            child: ListView(
+              padding: const EdgeInsets.only(bottom: 100),
+              children: [
+                _buildAlertBanners(),
+                const SizedBox(height: 16),
+                _buildGreeting(auth),
+                const SizedBox(height: 16),
+                const SizedBox(height: 16),
+                _buildPostComposer(auth),
+                const SizedBox(height: 20),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      const Text(
+                        'Community Feed',
+                        style: TextStyle(
+                          fontSize: 17,
+                          fontWeight: FontWeight.w700,
+                          color: Color(0xFF1A237E),
+                        ),
+                      ),
+                      TextButton(
+                        onPressed: () {},
+                        child: const Text(
+                          'See all',
+                          style: TextStyle(color: _blue, fontSize: 13),
+                        ),
+                      ),
+                    ],
                   ),
-                  TextButton(
-                    onPressed: () {},
-                    child: const Text(
-                      'See all',
-                      style: TextStyle(color: _blue, fontSize: 13),
-                    ),
-                  ),
-                ],
-              ),
+                ),
+                const SizedBox(height: 4),
+                _buildCommunityFeed(),
+              ],
             ),
-            const SizedBox(height: 4),
-            _buildCommunityFeed(),
-          ],
-        ),
+          ),
+
+          // ── Slide-in toast overlay ───────────────────────────────────────
+          if (_showingToast && _currentToast != null)
+            Positioned(
+              top: 12,
+              left: 0,
+              right: 0,
+              child: _buildToast(_currentToast!),
+            ),
+        ],
       ),
       bottomNavigationBar: const AppBottomNav(currentIndex: 0),
+    );
+  }
+
+  Widget _buildToast(Map<String, dynamic> post) {
+    final status = post['status'] as String? ?? '';
+    final isApproved = status == 'published';
+    final postLabel = (post['title'] as String?)?.isNotEmpty == true
+        ? post['title'] as String
+        : (post['type'] as String? ?? 'Your post');
+    final title = isApproved ? 'Post Approved' : 'Post Not Approved';
+    final message = isApproved
+        ? '"$postLabel" has been published to the community feed.'
+        : '"$postLabel" was not approved. Reason: ${post['rejection_reason'] ?? 'No reason given.'}';
+
+    return _NotifToast(
+      title: title,
+      message: message,
+      isApproved: isApproved,
+      onDismiss: _dismissToast,
     );
   }
 
@@ -498,205 +743,6 @@ class _CitizenHomeScreenState extends State<CitizenHomeScreen> {
     );
   }
 
-  Widget _buildRescueTeamsCard() {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16),
-      child: FutureBuilder<Map<String, dynamic>?>(
-        future: _rescuerFuture,
-        builder: (context, snapshot) {
-          return _cardContainer(
-            child:
-                _locationLoaded &&
-                    snapshot.connectionState == ConnectionState.done
-                ? _rescuerCardContent(snapshot.data)
-                : _rescuerCardSkeleton(),
-          );
-        },
-      ),
-    );
-  }
-
-  Widget _rescuerCardSkeleton() {
-    return Row(
-      children: [
-        Container(
-          width: 44,
-          height: 44,
-          decoration: BoxDecoration(
-            color: _blue.withValues(alpha: 0.1),
-            borderRadius: BorderRadius.circular(12),
-          ),
-          child: const Icon(Icons.people_alt_rounded, color: _blue, size: 22),
-        ),
-        const SizedBox(width: 12),
-        Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: const [
-            _SkeletonBox(width: 130, height: 14),
-            SizedBox(height: 6),
-            _SkeletonBox(width: 90, height: 11),
-          ],
-        ),
-        const Spacer(),
-        const _SkeletonBox(width: 60, height: 28, radius: 14),
-      ],
-    );
-  }
-
-  Widget _rescuerCardContent(Map<String, dynamic>? data) {
-    if (data == null) {
-      return _noDataRow(
-        icon: Icons.people_alt_rounded,
-        iconColor: _textSec,
-        title: 'No rescue teams on duty',
-        subtitle: 'Check back during an emergency',
-      );
-    }
-
-    final count = data['count'] as int? ?? 0;
-    final name = data['name'] as String? ?? 'Rescue Team';
-    final distKm = (data['distance_km'] as double?)?.toStringAsFixed(1) ?? '–';
-    final eta = data['eta_min'] as int? ?? 0;
-
-    return Row(
-      children: [
-        Container(
-          width: 44,
-          height: 44,
-          decoration: BoxDecoration(
-            color: _blue.withValues(alpha: 0.1),
-            borderRadius: BorderRadius.circular(12),
-          ),
-          child: const Icon(Icons.people_alt_rounded, color: _blue, size: 22),
-        ),
-        const SizedBox(width: 12),
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                name,
-                style: const TextStyle(
-                  fontWeight: FontWeight.w700,
-                  fontSize: 14,
-                  color: Color(0xFF1A237E),
-                ),
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-              ),
-              const SizedBox(height: 2),
-              Text(
-                '$count team${count != 1 ? 's' : ''} on duty · $distKm km away',
-                style: const TextStyle(fontSize: 12, color: _textSec),
-              ),
-            ],
-          ),
-        ),
-        const SizedBox(width: 8),
-        _etaBadge('~$eta min', _blue),
-      ],
-    );
-  }
-
-  Widget _buildEvacCenterCard() {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16),
-      child: FutureBuilder<Map<String, dynamic>?>(
-        future: _evacFuture,
-        builder: (context, snapshot) {
-          return _cardContainer(
-            child:
-                _locationLoaded &&
-                    snapshot.connectionState == ConnectionState.done
-                ? _evacCardContent(snapshot.data)
-                : _evacCardSkeleton(),
-          );
-        },
-      ),
-    );
-  }
-
-  Widget _evacCardSkeleton() {
-    return Row(
-      children: [
-        Container(
-          width: 44,
-          height: 44,
-          decoration: BoxDecoration(
-            color: _green.withValues(alpha: 0.1),
-            borderRadius: BorderRadius.circular(12),
-          ),
-          child: const Icon(Icons.home_work_outlined, color: _green, size: 22),
-        ),
-        const SizedBox(width: 12),
-        Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: const [
-            _SkeletonBox(width: 150, height: 14),
-            SizedBox(height: 6),
-            _SkeletonBox(width: 100, height: 11),
-          ],
-        ),
-        const Spacer(),
-        const _SkeletonBox(width: 72, height: 28, radius: 14),
-      ],
-    );
-  }
-
-  Widget _evacCardContent(Map<String, dynamic>? data) {
-    if (data == null) {
-      return _noDataRow(
-        icon: Icons.home_work_outlined,
-        iconColor: _textSec,
-        title: 'No evacuation centers found',
-        subtitle: 'Data may be unavailable',
-      );
-    }
-
-    final name = data['name'] as String? ?? 'Evacuation Center';
-    final distKm = (data['distance_km'] as double?)?.toStringAsFixed(1) ?? '–';
-    final slots = data['available_slots'] as int? ?? 0;
-
-    return Row(
-      children: [
-        Container(
-          width: 44,
-          height: 44,
-          decoration: BoxDecoration(
-            color: _green.withValues(alpha: 0.1),
-            borderRadius: BorderRadius.circular(12),
-          ),
-          child: const Icon(Icons.home_work_outlined, color: _green, size: 22),
-        ),
-        const SizedBox(width: 12),
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                name,
-                style: const TextStyle(
-                  fontWeight: FontWeight.w700,
-                  fontSize: 14,
-                  color: Color(0xFF1A237E),
-                ),
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-              ),
-              const SizedBox(height: 2),
-              Text(
-                '$distKm km away',
-                style: const TextStyle(fontSize: 12, color: _textSec),
-              ),
-            ],
-          ),
-        ),
-        const SizedBox(width: 8),
-        _slotsBadge(slots),
-      ],
-    );
-  }
-
   Widget _buildCommunityFeed() {
     return StreamBuilder<List<Map<String, dynamic>>>(
       stream: FirestoreService.instance.communityFeedStream(),
@@ -885,30 +931,6 @@ class _CitizenHomeScreenState extends State<CitizenHomeScreen> {
     );
   }
 
-  Widget _slotsBadge(int slots) {
-    final color = slots > 20
-        ? _green
-        : slots > 0
-        ? _orange
-        : _red;
-    final label = slots > 0 ? '$slots slots' : 'Full';
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.1),
-        borderRadius: BorderRadius.circular(20),
-      ),
-      child: Text(
-        label,
-        style: TextStyle(
-          color: color,
-          fontWeight: FontWeight.w700,
-          fontSize: 12,
-        ),
-      ),
-    );
-  }
-
   Widget _noDataRow({
     required IconData icon,
     required Color iconColor,
@@ -1008,16 +1030,9 @@ class _CitizenHomeScreenState extends State<CitizenHomeScreen> {
   }
 
   void _showPostDialog(BuildContext context, AuthProvider auth) {
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
-      builder: (ctx) => Padding(
-        padding: EdgeInsets.only(bottom: MediaQuery.of(ctx).viewInsets.bottom),
-        child: _PostComposerSheet(auth: auth),
-      ),
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => const CreatePostScreen()),
     );
   }
 
@@ -1035,503 +1050,6 @@ class _CitizenHomeScreenState extends State<CitizenHomeScreen> {
           Text(label, style: const TextStyle(fontSize: 12, color: _textSec)),
         ],
       ),
-    );
-  }
-}
-
-// =============================================================================
-// POST COMPOSER SHEET
-// =============================================================================
-
-class _PostComposerSheet extends StatefulWidget {
-  final AuthProvider auth;
-  const _PostComposerSheet({required this.auth});
-
-  @override
-  State<_PostComposerSheet> createState() => _PostComposerSheetState();
-}
-
-class _PostComposerSheetState extends State<_PostComposerSheet> {
-  final _textCtrl = TextEditingController();
-  bool _isPosting = false;
-
-  @override
-  void dispose() {
-    _textCtrl.dispose();
-    super.dispose();
-  }
-
-  Future<void> _post() async {
-    final text = _textCtrl.text.trim();
-    if (text.isEmpty) return;
-    setState(() => _isPosting = true);
-
-    try {
-      final uid = widget.auth.user?.uid;
-      final name = widget.auth.user?.displayName ?? 'Anonymous';
-      if (uid == null) return;
-
-      await FirestoreService.instance.createCommunityPost({
-        'author_id': uid,
-        'author_name': name,
-        'text': text,
-        'likes': 0,
-        'comments': 0,
-        'created_at': DateTime.now(),
-      });
-
-      if (mounted) Navigator.pop(context);
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Failed to post: $e'),
-            backgroundColor: const Color(0xFFD7263D),
-          ),
-        );
-      }
-    } finally {
-      if (mounted) setState(() => _isPosting = false);
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final name = widget.auth.user?.displayName?.split(' ').first ?? 'Citizen';
-    final initials = name.isNotEmpty
-        ? name.trim().split(' ').map((e) => e[0]).take(2).join().toUpperCase()
-        : '?';
-
-    return Container(
-      padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
-      decoration: const BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Container(
-            width: 40,
-            height: 4,
-            decoration: BoxDecoration(
-              color: Colors.grey.shade300,
-              borderRadius: BorderRadius.circular(2),
-            ),
-          ),
-          const SizedBox(height: 16),
-          Row(
-            children: [
-              CircleAvatar(
-                radius: 20,
-                backgroundColor: const Color(0xFF0D47A1),
-                child: Text(
-                  initials,
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontWeight: FontWeight.w700,
-                    fontSize: 13,
-                  ),
-                ),
-              ),
-              const SizedBox(width: 12),
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    name,
-                    style: const TextStyle(
-                      fontWeight: FontWeight.w700,
-                      fontSize: 14,
-                      color: Color(0xFF1A237E),
-                    ),
-                  ),
-                  const Text(
-                    'Posting to Community Feed',
-                    style: TextStyle(fontSize: 11, color: Color(0xFF546E7A)),
-                  ),
-                ],
-              ),
-            ],
-          ),
-          const SizedBox(height: 16),
-          TextField(
-            controller: _textCtrl,
-            autofocus: true,
-            maxLines: 4,
-            minLines: 2,
-            decoration: const InputDecoration(
-              hintText: "What's on your mind? Share an incident or update...",
-              hintStyle: TextStyle(color: Color(0xFF90A4AE), fontSize: 14),
-              border: InputBorder.none,
-            ),
-          ),
-          const Divider(),
-          const SizedBox(height: 8),
-          Row(
-            children: [
-              const Icon(
-                Icons.image_outlined,
-                color: Color(0xFF546E7A),
-                size: 20,
-              ),
-              const SizedBox(width: 8),
-              const Text(
-                'Add Photo',
-                style: TextStyle(fontSize: 13, color: Color(0xFF546E7A)),
-              ),
-              const Spacer(),
-              SizedBox(
-                height: 38,
-                child: ElevatedButton(
-                  onPressed: _isPosting ? null : _post,
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFF0D47A1),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(20),
-                    ),
-                    padding: const EdgeInsets.symmetric(horizontal: 24),
-                  ),
-                  child: _isPosting
-                      ? const SizedBox(
-                          width: 16,
-                          height: 16,
-                          child: CircularProgressIndicator(
-                            strokeWidth: 2,
-                            color: Colors.white,
-                          ),
-                        )
-                      : const Text(
-                          'Post',
-                          style: TextStyle(
-                            color: Colors.white,
-                            fontWeight: FontWeight.w700,
-                          ),
-                        ),
-                ),
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-// =============================================================================
-// CITIZEN HAMBURGER MENU
-// =============================================================================
-
-class _CitizenHamburgerMenu extends StatelessWidget {
-  final Future<Map<String, dynamic>?>? rescuerFuture;
-  final Future<Map<String, dynamic>?>? evacFuture;
-
-  const _CitizenHamburgerMenu({this.rescuerFuture, this.evacFuture});
-
-  static const _blue = Color(0xFF0D47A1);
-  static const _green = Color(0xFF1FAA59);
-  static const _orange = Color(0xFFFF6B00);
-
-  @override
-  Widget build(BuildContext context) {
-    return SafeArea(
-      child: SingleChildScrollView(
-        padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Center(
-              child: Container(
-                width: 40,
-                height: 4,
-                decoration: BoxDecoration(
-                  color: Colors.grey.shade300,
-                  borderRadius: BorderRadius.circular(2),
-                ),
-              ),
-            ),
-            const SizedBox(height: 20),
-
-            // ── Nearest Rescue Team ──────────────────────────────────────
-            const Text(
-              'Nearest Rescue Team',
-              style: TextStyle(
-                fontSize: 13,
-                fontWeight: FontWeight.w700,
-                color: Color(0xFF546E7A),
-              ),
-            ),
-            const SizedBox(height: 8),
-            FutureBuilder<Map<String, dynamic>?>(
-              future: rescuerFuture,
-              builder: (context, snap) {
-                if (snap.connectionState == ConnectionState.waiting) {
-                  return _menuCard(
-                    child: const Center(
-                      child: Padding(
-                        padding: EdgeInsets.all(12),
-                        child: CircularProgressIndicator(
-                          strokeWidth: 2,
-                          color: _blue,
-                        ),
-                      ),
-                    ),
-                  );
-                }
-                final data = snap.data;
-                if (data == null) {
-                  return _menuCard(
-                    child: const ListTile(
-                      leading: Icon(
-                        Icons.people_outline,
-                        color: Color(0xFF90A4AE),
-                      ),
-                      title: Text(
-                        'No rescue teams on duty',
-                        style: TextStyle(
-                          color: Color(0xFF90A4AE),
-                          fontSize: 14,
-                        ),
-                      ),
-                    ),
-                  );
-                }
-                final name = data['name'] as String? ?? 'Rescue Team';
-                final dist = data['distance'] as double? ?? 0;
-                final eta = (dist / 40 * 60).round();
-                return _menuCard(
-                  child: ListTile(
-                    leading: Container(
-                      padding: const EdgeInsets.all(8),
-                      decoration: BoxDecoration(
-                        color: _blue.withAlpha(20),
-                        borderRadius: BorderRadius.circular(10),
-                      ),
-                      child: const Icon(
-                        Icons.people_outline,
-                        color: _blue,
-                        size: 20,
-                      ),
-                    ),
-                    title: Text(
-                      name,
-                      style: const TextStyle(
-                        fontWeight: FontWeight.w700,
-                        fontSize: 14,
-                      ),
-                    ),
-                    subtitle: Text(
-                      '${dist.toStringAsFixed(1)} km away',
-                      style: const TextStyle(
-                        fontSize: 12,
-                        color: Color(0xFF546E7A),
-                      ),
-                    ),
-                    trailing: Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 10,
-                        vertical: 5,
-                      ),
-                      decoration: BoxDecoration(
-                        color: _blue.withAlpha(20),
-                        borderRadius: BorderRadius.circular(20),
-                      ),
-                      child: Text(
-                        '~$eta min',
-                        style: const TextStyle(
-                          color: _blue,
-                          fontWeight: FontWeight.w700,
-                          fontSize: 12,
-                        ),
-                      ),
-                    ),
-                  ),
-                );
-              },
-            ),
-
-            const SizedBox(height: 16),
-
-            // ── Nearest Evac Center ──────────────────────────────────────
-            const Text(
-              'Nearest Evacuation Center',
-              style: TextStyle(
-                fontSize: 13,
-                fontWeight: FontWeight.w700,
-                color: Color(0xFF546E7A),
-              ),
-            ),
-            const SizedBox(height: 8),
-            FutureBuilder<Map<String, dynamic>?>(
-              future: evacFuture,
-              builder: (context, snap) {
-                if (snap.connectionState == ConnectionState.waiting) {
-                  return _menuCard(
-                    child: const Center(
-                      child: Padding(
-                        padding: EdgeInsets.all(12),
-                        child: CircularProgressIndicator(
-                          strokeWidth: 2,
-                          color: _green,
-                        ),
-                      ),
-                    ),
-                  );
-                }
-                final data = snap.data;
-                if (data == null) {
-                  return _menuCard(
-                    child: const ListTile(
-                      leading: Icon(
-                        Icons.home_outlined,
-                        color: Color(0xFF90A4AE),
-                      ),
-                      title: Text(
-                        'No evacuation centers found',
-                        style: TextStyle(
-                          color: Color(0xFF90A4AE),
-                          fontSize: 14,
-                        ),
-                      ),
-                    ),
-                  );
-                }
-                final name = data['name'] as String? ?? 'Evacuation Center';
-                final dist = data['distance'] as double? ?? 0;
-                final slots = data['available_slots'] as int? ?? 0;
-                final slotColor = slots > 20
-                    ? _green
-                    : slots > 0
-                    ? _orange
-                    : const Color(0xFFD7263D);
-                return _menuCard(
-                  child: ListTile(
-                    leading: Container(
-                      padding: const EdgeInsets.all(8),
-                      decoration: BoxDecoration(
-                        color: _green.withAlpha(20),
-                        borderRadius: BorderRadius.circular(10),
-                      ),
-                      child: const Icon(
-                        Icons.home_outlined,
-                        color: _green,
-                        size: 20,
-                      ),
-                    ),
-                    title: Text(
-                      name,
-                      style: const TextStyle(
-                        fontWeight: FontWeight.w700,
-                        fontSize: 14,
-                      ),
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                    subtitle: Text(
-                      '${dist.toStringAsFixed(1)} km away',
-                      style: const TextStyle(
-                        fontSize: 12,
-                        color: Color(0xFF546E7A),
-                      ),
-                    ),
-                    trailing: Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 10,
-                        vertical: 5,
-                      ),
-                      decoration: BoxDecoration(
-                        color: slotColor.withAlpha(20),
-                        borderRadius: BorderRadius.circular(20),
-                      ),
-                      child: Text(
-                        slots > 0 ? '$slots slots' : 'Full',
-                        style: TextStyle(
-                          color: slotColor,
-                          fontWeight: FontWeight.w700,
-                          fontSize: 12,
-                        ),
-                      ),
-                    ),
-                  ),
-                );
-              },
-            ),
-
-            const SizedBox(height: 16),
-            const Divider(),
-            const SizedBox(height: 8),
-
-            // ── Quick Links ───────────────────────────────────────────────
-            const Text(
-              'Quick Links',
-              style: TextStyle(
-                fontSize: 13,
-                fontWeight: FontWeight.w700,
-                color: Color(0xFF546E7A),
-              ),
-            ),
-            const SizedBox(height: 8),
-            _quickLink(
-              context,
-              Icons.notifications_outlined,
-              'Alerts',
-              const Color(0xFFFF6B00),
-              () {
-                Navigator.pop(context);
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(builder: (_) => const AlertsScreen()),
-                );
-              },
-            ),
-            _quickLink(
-              context,
-              Icons.menu,
-              'Menu',
-              const Color(0xFF546E7A),
-              () {
-                Navigator.pop(context);
-                showHamburgerMenu(context, role: HamburgerRole.citizen);
-              },
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _menuCard({required Widget child}) => Container(
-    decoration: BoxDecoration(
-      color: Colors.white,
-      borderRadius: BorderRadius.circular(14),
-      border: Border.all(color: const Color(0xFFE0E0E0)),
-    ),
-    child: child,
-  );
-
-  Widget _quickLink(
-    BuildContext context,
-    IconData icon,
-    String label,
-    Color color,
-    VoidCallback onTap,
-  ) {
-    return ListTile(
-      contentPadding: const EdgeInsets.symmetric(horizontal: 4),
-      leading: Container(
-        padding: const EdgeInsets.all(8),
-        decoration: BoxDecoration(
-          color: color.withAlpha(20),
-          borderRadius: BorderRadius.circular(10),
-        ),
-        child: Icon(icon, color: color, size: 20),
-      ),
-      title: Text(
-        label,
-        style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14),
-      ),
-      trailing: const Icon(Icons.chevron_right, color: Color(0xFF90A4AE)),
-      onTap: onTap,
     );
   }
 }

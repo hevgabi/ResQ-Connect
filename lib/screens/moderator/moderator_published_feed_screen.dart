@@ -5,14 +5,12 @@ import 'package:provider/provider.dart';
 import 'package:intl/intl.dart';
 import 'package:timeago/timeago.dart' as timeago;
 
+import '../../models/report_model.dart';
 import '../../providers/auth_provider.dart';
 import '../../services/firestore_service.dart';
 import '../../widgets/moderator_bottom_nav.dart';
 import '../../widgets/error_banner.dart';
 import '../../widgets/empty_state.dart';
-
-// TANDAAN: Kung may ginawa kang ReportModel class, siguraduhing i-import mo rito kung kinakailangan.
-// halimbawa: import '../../models/report_model.dart';
 
 class ModeratorPublishedFeedScreen extends StatelessWidget {
   const ModeratorPublishedFeedScreen({super.key});
@@ -69,8 +67,8 @@ class _PublishedTab extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // FIX: Binago mula QuerySnapshot patungong List<dynamic> (o List<ReportModel> depende sa iyong model setup)
-    return StreamBuilder<List<dynamic>>(
+    // FIX: Correct generic type — stream returns List<ReportModel>, not List<dynamic>.
+    return StreamBuilder<List<ReportModel>>(
       stream: FirestoreService.instance.publishedReportsStream(),
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
@@ -88,24 +86,14 @@ class _PublishedTab extends StatelessWidget {
           );
         }
 
-        // FIX: Direkta nang List ang data, wala nang .docs
         final reports = snapshot.data!;
         return ListView.separated(
           padding: const EdgeInsets.all(16),
           itemCount: reports.length,
           separatorBuilder: (_, __) => const SizedBox(height: 12),
-          itemBuilder: (context, index) {
-            final report = reports[index];
-
-            // KUNG ang report ay isang custom object (Model), kadalasan ay may id at toMap() o fields ito.
-            // Iniaangkop natin ito para gumana kahit Model o Map ang balik ng iyong stream.
-            final String reportId = report.id;
-            final Map<String, dynamic> data = (report is Map)
-                ? report as Map<String, dynamic>
-                : report.toMap();
-
-            return _PublishedCard(reportId: reportId, data: data);
-          },
+          // FIX: Pass the ReportModel directly — no messy id+data splitting.
+          itemBuilder: (context, index) =>
+              _PublishedCard(report: reports[index]),
         );
       },
     );
@@ -116,16 +104,16 @@ class _PublishedTab extends StatelessWidget {
       padding: const EdgeInsets.all(16),
       itemCount: 4,
       separatorBuilder: (_, __) => const SizedBox(height: 12),
-      itemBuilder: (_, __) => _CardSkeleton(),
+      itemBuilder: (_, __) => const _CardSkeleton(),
     );
   }
 }
 
 class _PublishedCard extends StatefulWidget {
-  final String reportId;
-  final Map<String, dynamic> data;
+  // FIX: Accept a typed ReportModel instead of raw id + Map.
+  final ReportModel report;
 
-  const _PublishedCard({required this.reportId, required this.data});
+  const _PublishedCard({required this.report});
 
   @override
   State<_PublishedCard> createState() => _PublishedCardState();
@@ -145,7 +133,7 @@ class _PublishedCardState extends State<_PublishedCard> {
     try {
       final missionsSnap = await FirebaseFirestore.instance
           .collection('missions')
-          .where('report_id', isEqualTo: widget.reportId)
+          .where('report_id', isEqualTo: widget.report.id)
           .where('status', isEqualTo: 'active')
           .get();
 
@@ -160,14 +148,18 @@ class _PublishedCardState extends State<_PublishedCard> {
 
   @override
   Widget build(BuildContext context) {
-    final data = widget.data;
-    final reportType = (data['type'] as String?) ?? 'General';
-    final title =
-        (data['title'] as String?) ??
-        reportType.replaceAll('_', ' ').toUpperCase();
-    final approvedAt = (data['approved_at'] as Timestamp?)?.toDate();
-    final approvedAtText = approvedAt != null
-        ? DateFormat('MMM d, yyyy • h:mm a').format(approvedAt)
+    final report = widget.report;
+
+    // FIX: Use typed model fields directly — no more data['approved_at'] which
+    // didn't exist. The correct field is publishedAt from the ReportModel.
+    final reportType = report.category;
+    final title = report.title.isNotEmpty
+        ? report.title
+        : reportType.replaceAll('_', ' ').toUpperCase();
+
+    final publishedAt = report.publishedAt;
+    final publishedAtText = publishedAt != null
+        ? DateFormat('MMM d, yyyy • h:mm a').format(publishedAt)
         : 'Recently';
 
     return Container(
@@ -204,7 +196,7 @@ class _PublishedCardState extends State<_PublishedCard> {
                   ),
                 ),
               ),
-              if (_hasActiveMission) _LiveBadge(),
+              if (_hasActiveMission) const _LiveBadge(),
             ],
           ),
           const SizedBox(height: 8),
@@ -212,7 +204,7 @@ class _PublishedCardState extends State<_PublishedCard> {
           const SizedBox(height: 10),
           _InfoRow(
             icon: Icons.check_circle_outline,
-            text: 'Approved $approvedAtText',
+            text: 'Published $publishedAtText',
             color: const Color(0xFF1FAA59),
           ),
           if (_rescuerCount > 0)
@@ -232,6 +224,8 @@ class _PublishedCardState extends State<_PublishedCard> {
 }
 
 class _LiveBadge extends StatelessWidget {
+  const _LiveBadge();
+
   @override
   Widget build(BuildContext context) {
     return Container(
@@ -334,7 +328,7 @@ class _RejectedTab extends StatelessWidget {
       padding: const EdgeInsets.all(16),
       itemCount: 4,
       separatorBuilder: (_, __) => const SizedBox(height: 12),
-      itemBuilder: (_, __) => _CardSkeleton(),
+      itemBuilder: (_, __) => const _CardSkeleton(),
     );
   }
 }
@@ -511,6 +505,8 @@ class _TypeChipSmall extends StatelessWidget {
 }
 
 class _CardSkeleton extends StatelessWidget {
+  const _CardSkeleton();
+
   @override
   Widget build(BuildContext context) {
     return Container(
