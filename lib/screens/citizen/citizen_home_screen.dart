@@ -14,14 +14,8 @@ import '../../services/location_service.dart';
 import '../../widgets/app_bottom_nav.dart';
 import '../../widgets/error_banner.dart';
 import '../../widgets/empty_state.dart';
-import '../citizen/sos_trigger_screen.dart';
-import '../citizen/live_map_screen.dart';
 import '../citizen/alerts_screen.dart';
 import '../citizen/emergency_hotlines_screen.dart';
-
-// ───────────────────────────────────────────────────────────────────────────────
-// SKELETON HELPERS
-// ───────────────────────────────────────────────────────────────────────────────
 
 class _SkeletonBox extends StatefulWidget {
   final double width;
@@ -76,10 +70,6 @@ class _SkeletonBoxState extends State<_SkeletonBox>
     );
   }
 }
-
-// ───────────────────────────────────────────────────────────────────────────────
-// MAIN SCREEN
-// ───────────────────────────────────────────────────────────────────────────────
 
 class CitizenHomeScreen extends StatefulWidget {
   const CitizenHomeScreen({super.key});
@@ -142,10 +132,10 @@ class _CitizenHomeScreenState extends State<CitizenHomeScreen> {
     final dLng = _deg2rad(lng2 - lng1);
     final a =
         sin(dLat / 2) * sin(dLat / 2) +
-        cos(_deg2rad(lat1)) *
-            cos(_deg2rad(lat2)) *
-            sin(dLng / 2) *
-            sin(dLng / 2);
+            cos(_deg2rad(lat1)) *
+                cos(_deg2rad(lat2)) *
+                sin(dLng / 2) *
+                sin(dLng / 2);
     return r * 2 * atan2(sqrt(a), sqrt(1 - a));
   }
 
@@ -233,7 +223,7 @@ class _CitizenHomeScreenState extends State<CitizenHomeScreen> {
           children: [
             _buildAlertBanners(),
             const SizedBox(height: 16),
-            _buildGreetingAndSOS(auth),
+            _buildGreeting(auth),
             const SizedBox(height: 16),
             _buildRescueTeamsCard(),
             const SizedBox(height: 12),
@@ -336,7 +326,7 @@ class _CitizenHomeScreenState extends State<CitizenHomeScreen> {
     );
   }
 
-  Widget _buildGreetingAndSOS(AuthProvider auth) {
+  Widget _buildGreeting(AuthProvider auth) {
     final name = auth.user?.displayName?.split(' ').first ?? 'Citizen';
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16),
@@ -355,107 +345,6 @@ class _CitizenHomeScreenState extends State<CitizenHomeScreen> {
           const Text(
             'Stay safe. We\'re here to help.',
             style: TextStyle(fontSize: 14, color: _textSec),
-          ),
-          const SizedBox(height: 16),
-          // SOS Button
-          SizedBox(
-            width: double.infinity,
-            height: 56,
-            child: ElevatedButton.icon(
-              onPressed: () => Navigator.push(
-                context,
-                MaterialPageRoute(builder: (_) => const SosTriggerScreen()),
-              ),
-              icon: const Icon(Icons.sos_rounded, size: 22),
-              label: const Text(
-                'SEND SOS REQUEST',
-                style: TextStyle(
-                  fontSize: 15,
-                  fontWeight: FontWeight.w800,
-                  letterSpacing: 0.8,
-                ),
-              ),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: _red,
-                foregroundColor: Colors.white,
-                elevation: 0,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(14),
-                ),
-              ),
-            ),
-          ),
-          const SizedBox(height: 10),
-          // View Live Map Button
-          SizedBox(
-            width: double.infinity,
-            height: 46,
-            child: OutlinedButton.icon(
-              onPressed: () => Navigator.push(
-                context,
-                MaterialPageRoute(builder: (_) => const LiveMapScreen()),
-              ),
-              icon: const Icon(Icons.map_outlined, size: 18),
-              label: const Text(
-                'View Live Map',
-                style: TextStyle(fontWeight: FontWeight.w600),
-              ),
-              style: OutlinedButton.styleFrom(
-                foregroundColor: _blue,
-                side: const BorderSide(color: _blue, width: 1.5),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(14),
-                ),
-              ),
-            ),
-          ),
-          const SizedBox(height: 10),
-          // Hotlines + Rescue Status Buttons
-          Row(
-            children: [
-              Expanded(
-                child: OutlinedButton.icon(
-                  onPressed: () => Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (_) => const EmergencyHotlinesScreen(),
-                    ),
-                  ),
-                  icon: const Icon(Icons.phone_rounded, size: 18),
-                  label: const Text(
-                    'Hotlines',
-                    style: TextStyle(fontWeight: FontWeight.w600, fontSize: 13),
-                  ),
-                  style: OutlinedButton.styleFrom(
-                    foregroundColor: _red,
-                    side: const BorderSide(color: _red, width: 1.5),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(14),
-                    ),
-                    padding: const EdgeInsets.symmetric(vertical: 12),
-                  ),
-                ),
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: OutlinedButton.icon(
-                  onPressed: () {}, // rescue status — later
-                  icon: const Icon(Icons.track_changes_rounded, size: 18),
-                  label: const Text(
-                    'Rescue Status',
-                    style: TextStyle(fontWeight: FontWeight.w600, fontSize: 13),
-                  ),
-                  style: OutlinedButton.styleFrom(
-                    foregroundColor: _orange,
-                    side: const BorderSide(color: _orange, width: 1.5),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(14),
-                    ),
-                    padding: const EdgeInsets.symmetric(vertical: 12),
-                  ),
-                ),
-              ),
-            ],
           ),
         ],
       ),
@@ -608,7 +497,7 @@ class _CitizenHomeScreenState extends State<CitizenHomeScreen> {
         builder: (context, snapshot) {
           return _cardContainer(
             child: _locationLoaded &&
-                    snapshot.connectionState == ConnectionState.done
+                snapshot.connectionState == ConnectionState.done
                 ? _rescuerCardContent(snapshot.data)
                 : _rescuerCardSkeleton(),
           );
@@ -707,7 +596,7 @@ class _CitizenHomeScreenState extends State<CitizenHomeScreen> {
         builder: (context, snapshot) {
           return _cardContainer(
             child: _locationLoaded &&
-                    snapshot.connectionState == ConnectionState.done
+                snapshot.connectionState == ConnectionState.done
                 ? _evacCardContent(snapshot.data)
                 : _evacCardSkeleton(),
           );
@@ -805,7 +694,7 @@ class _CitizenHomeScreenState extends State<CitizenHomeScreen> {
           return Column(
             children: List.generate(
               3,
-              (_) => Padding(
+                  (_) => Padding(
                 padding: const EdgeInsets.fromLTRB(16, 0, 16, 10),
                 child: _cardContainer(child: _feedSkeleton()),
               ),
@@ -989,8 +878,8 @@ class _CitizenHomeScreenState extends State<CitizenHomeScreen> {
     final color = slots > 20
         ? _green
         : slots > 0
-            ? _orange
-            : _red;
+        ? _orange
+        : _red;
     final label = slots > 0 ? '$slots slots' : 'Full';
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
