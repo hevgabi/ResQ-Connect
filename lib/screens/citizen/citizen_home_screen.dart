@@ -16,6 +16,7 @@ import '../../widgets/error_banner.dart';
 import '../../widgets/empty_state.dart';
 import '../citizen/alerts_screen.dart';
 import '../citizen/emergency_hotlines_screen.dart';
+import '../settings/hamburger_menu_screen.dart'; // i-adjust path depende sa location
 
 class _SkeletonBox extends StatefulWidget {
   final double width;
@@ -132,10 +133,10 @@ class _CitizenHomeScreenState extends State<CitizenHomeScreen> {
     final dLng = _deg2rad(lng2 - lng1);
     final a =
         sin(dLat / 2) * sin(dLat / 2) +
-            cos(_deg2rad(lat1)) *
-                cos(_deg2rad(lat2)) *
-                sin(dLng / 2) *
-                sin(dLng / 2);
+        cos(_deg2rad(lat1)) *
+            cos(_deg2rad(lat2)) *
+            sin(dLng / 2) *
+            sin(dLng / 2);
     return r * 2 * atan2(sqrt(a), sqrt(1 - a));
   }
 
@@ -225,9 +226,8 @@ class _CitizenHomeScreenState extends State<CitizenHomeScreen> {
             const SizedBox(height: 16),
             _buildGreeting(auth),
             const SizedBox(height: 16),
-            _buildRescueTeamsCard(),
-            const SizedBox(height: 12),
-            _buildEvacCenterCard(),
+            const SizedBox(height: 16),
+            _buildPostComposer(auth),
             const SizedBox(height: 20),
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 16),
@@ -321,9 +321,18 @@ class _CitizenHomeScreenState extends State<CitizenHomeScreen> {
             ),
           ],
         ),
+        IconButton(
+          icon: const Icon(Icons.menu, color: Color(0xFF37474F)),
+          tooltip: 'Menu',
+          onPressed: () => _openHamburgerMenu(context),
+        ),
         const SizedBox(width: 4),
       ],
     );
+  }
+
+  void _openHamburgerMenu(BuildContext context) {
+    showHamburgerMenu(context, role: HamburgerRole.citizen);
   }
 
   Widget _buildGreeting(AuthProvider auth) {
@@ -496,8 +505,9 @@ class _CitizenHomeScreenState extends State<CitizenHomeScreen> {
         future: _rescuerFuture,
         builder: (context, snapshot) {
           return _cardContainer(
-            child: _locationLoaded &&
-                snapshot.connectionState == ConnectionState.done
+            child:
+                _locationLoaded &&
+                    snapshot.connectionState == ConnectionState.done
                 ? _rescuerCardContent(snapshot.data)
                 : _rescuerCardSkeleton(),
           );
@@ -595,8 +605,9 @@ class _CitizenHomeScreenState extends State<CitizenHomeScreen> {
         future: _evacFuture,
         builder: (context, snapshot) {
           return _cardContainer(
-            child: _locationLoaded &&
-                snapshot.connectionState == ConnectionState.done
+            child:
+                _locationLoaded &&
+                    snapshot.connectionState == ConnectionState.done
                 ? _evacCardContent(snapshot.data)
                 : _evacCardSkeleton(),
           );
@@ -694,7 +705,7 @@ class _CitizenHomeScreenState extends State<CitizenHomeScreen> {
           return Column(
             children: List.generate(
               3,
-                  (_) => Padding(
+              (_) => Padding(
                 padding: const EdgeInsets.fromLTRB(16, 0, 16, 10),
                 child: _cardContainer(child: _feedSkeleton()),
               ),
@@ -937,6 +948,79 @@ class _CitizenHomeScreenState extends State<CitizenHomeScreen> {
     );
   }
 
+  Widget _buildPostComposer(AuthProvider auth) {
+    final name = auth.user?.displayName?.split(' ').first ?? 'Citizen';
+    final initials = name.isNotEmpty
+        ? name.trim().split(' ').map((e) => e[0]).take(2).join().toUpperCase()
+        : '?';
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16),
+      child: _cardContainer(
+        child: Row(
+          children: [
+            CircleAvatar(
+              radius: 20,
+              backgroundColor: const Color(0xFF0D47A1),
+              child: Text(
+                initials,
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.w700,
+                  fontSize: 13,
+                ),
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: GestureDetector(
+                onTap: () => _showPostDialog(context, auth),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 14,
+                    vertical: 10,
+                  ),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFF5F7FA),
+                    borderRadius: BorderRadius.circular(24),
+                    border: Border.all(color: const Color(0xFFE0E0E0)),
+                  ),
+                  child: const Text(
+                    "What's on your mind?",
+                    style: TextStyle(fontSize: 14, color: Color(0xFF90A4AE)),
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(width: 10),
+            GestureDetector(
+              onTap: () => _showPostDialog(context, auth),
+              child: const Icon(
+                Icons.image_outlined,
+                color: Color(0xFF546E7A),
+                size: 22,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _showPostDialog(BuildContext context, AuthProvider auth) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (ctx) => Padding(
+        padding: EdgeInsets.only(bottom: MediaQuery.of(ctx).viewInsets.bottom),
+        child: _PostComposerSheet(auth: auth),
+      ),
+    );
+  }
+
   Widget _feedAction({
     required IconData icon,
     required String label,
@@ -951,6 +1035,503 @@ class _CitizenHomeScreenState extends State<CitizenHomeScreen> {
           Text(label, style: const TextStyle(fontSize: 12, color: _textSec)),
         ],
       ),
+    );
+  }
+}
+
+// =============================================================================
+// POST COMPOSER SHEET
+// =============================================================================
+
+class _PostComposerSheet extends StatefulWidget {
+  final AuthProvider auth;
+  const _PostComposerSheet({required this.auth});
+
+  @override
+  State<_PostComposerSheet> createState() => _PostComposerSheetState();
+}
+
+class _PostComposerSheetState extends State<_PostComposerSheet> {
+  final _textCtrl = TextEditingController();
+  bool _isPosting = false;
+
+  @override
+  void dispose() {
+    _textCtrl.dispose();
+    super.dispose();
+  }
+
+  Future<void> _post() async {
+    final text = _textCtrl.text.trim();
+    if (text.isEmpty) return;
+    setState(() => _isPosting = true);
+
+    try {
+      final uid = widget.auth.user?.uid;
+      final name = widget.auth.user?.displayName ?? 'Anonymous';
+      if (uid == null) return;
+
+      await FirestoreService.instance.createCommunityPost({
+        'author_id': uid,
+        'author_name': name,
+        'text': text,
+        'likes': 0,
+        'comments': 0,
+        'created_at': DateTime.now(),
+      });
+
+      if (mounted) Navigator.pop(context);
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Failed to post: $e'),
+            backgroundColor: const Color(0xFFD7263D),
+          ),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isPosting = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final name = widget.auth.user?.displayName?.split(' ').first ?? 'Citizen';
+    final initials = name.isNotEmpty
+        ? name.trim().split(' ').map((e) => e[0]).take(2).join().toUpperCase()
+        : '?';
+
+    return Container(
+      padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
+      decoration: const BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            width: 40,
+            height: 4,
+            decoration: BoxDecoration(
+              color: Colors.grey.shade300,
+              borderRadius: BorderRadius.circular(2),
+            ),
+          ),
+          const SizedBox(height: 16),
+          Row(
+            children: [
+              CircleAvatar(
+                radius: 20,
+                backgroundColor: const Color(0xFF0D47A1),
+                child: Text(
+                  initials,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.w700,
+                    fontSize: 13,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    name,
+                    style: const TextStyle(
+                      fontWeight: FontWeight.w700,
+                      fontSize: 14,
+                      color: Color(0xFF1A237E),
+                    ),
+                  ),
+                  const Text(
+                    'Posting to Community Feed',
+                    style: TextStyle(fontSize: 11, color: Color(0xFF546E7A)),
+                  ),
+                ],
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          TextField(
+            controller: _textCtrl,
+            autofocus: true,
+            maxLines: 4,
+            minLines: 2,
+            decoration: const InputDecoration(
+              hintText: "What's on your mind? Share an incident or update...",
+              hintStyle: TextStyle(color: Color(0xFF90A4AE), fontSize: 14),
+              border: InputBorder.none,
+            ),
+          ),
+          const Divider(),
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              const Icon(
+                Icons.image_outlined,
+                color: Color(0xFF546E7A),
+                size: 20,
+              ),
+              const SizedBox(width: 8),
+              const Text(
+                'Add Photo',
+                style: TextStyle(fontSize: 13, color: Color(0xFF546E7A)),
+              ),
+              const Spacer(),
+              SizedBox(
+                height: 38,
+                child: ElevatedButton(
+                  onPressed: _isPosting ? null : _post,
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF0D47A1),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(20),
+                    ),
+                    padding: const EdgeInsets.symmetric(horizontal: 24),
+                  ),
+                  child: _isPosting
+                      ? const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: Colors.white,
+                          ),
+                        )
+                      : const Text(
+                          'Post',
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// =============================================================================
+// CITIZEN HAMBURGER MENU
+// =============================================================================
+
+class _CitizenHamburgerMenu extends StatelessWidget {
+  final Future<Map<String, dynamic>?>? rescuerFuture;
+  final Future<Map<String, dynamic>?>? evacFuture;
+
+  const _CitizenHamburgerMenu({this.rescuerFuture, this.evacFuture});
+
+  static const _blue = Color(0xFF0D47A1);
+  static const _green = Color(0xFF1FAA59);
+  static const _orange = Color(0xFFFF6B00);
+
+  @override
+  Widget build(BuildContext context) {
+    return SafeArea(
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Center(
+              child: Container(
+                width: 40,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: Colors.grey.shade300,
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+            ),
+            const SizedBox(height: 20),
+
+            // ── Nearest Rescue Team ──────────────────────────────────────
+            const Text(
+              'Nearest Rescue Team',
+              style: TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w700,
+                color: Color(0xFF546E7A),
+              ),
+            ),
+            const SizedBox(height: 8),
+            FutureBuilder<Map<String, dynamic>?>(
+              future: rescuerFuture,
+              builder: (context, snap) {
+                if (snap.connectionState == ConnectionState.waiting) {
+                  return _menuCard(
+                    child: const Center(
+                      child: Padding(
+                        padding: EdgeInsets.all(12),
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: _blue,
+                        ),
+                      ),
+                    ),
+                  );
+                }
+                final data = snap.data;
+                if (data == null) {
+                  return _menuCard(
+                    child: const ListTile(
+                      leading: Icon(
+                        Icons.people_outline,
+                        color: Color(0xFF90A4AE),
+                      ),
+                      title: Text(
+                        'No rescue teams on duty',
+                        style: TextStyle(
+                          color: Color(0xFF90A4AE),
+                          fontSize: 14,
+                        ),
+                      ),
+                    ),
+                  );
+                }
+                final name = data['name'] as String? ?? 'Rescue Team';
+                final dist = data['distance'] as double? ?? 0;
+                final eta = (dist / 40 * 60).round();
+                return _menuCard(
+                  child: ListTile(
+                    leading: Container(
+                      padding: const EdgeInsets.all(8),
+                      decoration: BoxDecoration(
+                        color: _blue.withAlpha(20),
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: const Icon(
+                        Icons.people_outline,
+                        color: _blue,
+                        size: 20,
+                      ),
+                    ),
+                    title: Text(
+                      name,
+                      style: const TextStyle(
+                        fontWeight: FontWeight.w700,
+                        fontSize: 14,
+                      ),
+                    ),
+                    subtitle: Text(
+                      '${dist.toStringAsFixed(1)} km away',
+                      style: const TextStyle(
+                        fontSize: 12,
+                        color: Color(0xFF546E7A),
+                      ),
+                    ),
+                    trailing: Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 10,
+                        vertical: 5,
+                      ),
+                      decoration: BoxDecoration(
+                        color: _blue.withAlpha(20),
+                        borderRadius: BorderRadius.circular(20),
+                      ),
+                      child: Text(
+                        '~$eta min',
+                        style: const TextStyle(
+                          color: _blue,
+                          fontWeight: FontWeight.w700,
+                          fontSize: 12,
+                        ),
+                      ),
+                    ),
+                  ),
+                );
+              },
+            ),
+
+            const SizedBox(height: 16),
+
+            // ── Nearest Evac Center ──────────────────────────────────────
+            const Text(
+              'Nearest Evacuation Center',
+              style: TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w700,
+                color: Color(0xFF546E7A),
+              ),
+            ),
+            const SizedBox(height: 8),
+            FutureBuilder<Map<String, dynamic>?>(
+              future: evacFuture,
+              builder: (context, snap) {
+                if (snap.connectionState == ConnectionState.waiting) {
+                  return _menuCard(
+                    child: const Center(
+                      child: Padding(
+                        padding: EdgeInsets.all(12),
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: _green,
+                        ),
+                      ),
+                    ),
+                  );
+                }
+                final data = snap.data;
+                if (data == null) {
+                  return _menuCard(
+                    child: const ListTile(
+                      leading: Icon(
+                        Icons.home_outlined,
+                        color: Color(0xFF90A4AE),
+                      ),
+                      title: Text(
+                        'No evacuation centers found',
+                        style: TextStyle(
+                          color: Color(0xFF90A4AE),
+                          fontSize: 14,
+                        ),
+                      ),
+                    ),
+                  );
+                }
+                final name = data['name'] as String? ?? 'Evacuation Center';
+                final dist = data['distance'] as double? ?? 0;
+                final slots = data['available_slots'] as int? ?? 0;
+                final slotColor = slots > 20
+                    ? _green
+                    : slots > 0
+                    ? _orange
+                    : const Color(0xFFD7263D);
+                return _menuCard(
+                  child: ListTile(
+                    leading: Container(
+                      padding: const EdgeInsets.all(8),
+                      decoration: BoxDecoration(
+                        color: _green.withAlpha(20),
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: const Icon(
+                        Icons.home_outlined,
+                        color: _green,
+                        size: 20,
+                      ),
+                    ),
+                    title: Text(
+                      name,
+                      style: const TextStyle(
+                        fontWeight: FontWeight.w700,
+                        fontSize: 14,
+                      ),
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    subtitle: Text(
+                      '${dist.toStringAsFixed(1)} km away',
+                      style: const TextStyle(
+                        fontSize: 12,
+                        color: Color(0xFF546E7A),
+                      ),
+                    ),
+                    trailing: Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 10,
+                        vertical: 5,
+                      ),
+                      decoration: BoxDecoration(
+                        color: slotColor.withAlpha(20),
+                        borderRadius: BorderRadius.circular(20),
+                      ),
+                      child: Text(
+                        slots > 0 ? '$slots slots' : 'Full',
+                        style: TextStyle(
+                          color: slotColor,
+                          fontWeight: FontWeight.w700,
+                          fontSize: 12,
+                        ),
+                      ),
+                    ),
+                  ),
+                );
+              },
+            ),
+
+            const SizedBox(height: 16),
+            const Divider(),
+            const SizedBox(height: 8),
+
+            // ── Quick Links ───────────────────────────────────────────────
+            const Text(
+              'Quick Links',
+              style: TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w700,
+                color: Color(0xFF546E7A),
+              ),
+            ),
+            const SizedBox(height: 8),
+            _quickLink(
+              context,
+              Icons.notifications_outlined,
+              'Alerts',
+              const Color(0xFFFF6B00),
+              () {
+                Navigator.pop(context);
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (_) => const AlertsScreen()),
+                );
+              },
+            ),
+            _quickLink(
+              context,
+              Icons.menu,
+              'Menu',
+              const Color(0xFF546E7A),
+              () {
+                Navigator.pop(context);
+                showHamburgerMenu(context, role: HamburgerRole.citizen);
+              },
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _menuCard({required Widget child}) => Container(
+    decoration: BoxDecoration(
+      color: Colors.white,
+      borderRadius: BorderRadius.circular(14),
+      border: Border.all(color: const Color(0xFFE0E0E0)),
+    ),
+    child: child,
+  );
+
+  Widget _quickLink(
+    BuildContext context,
+    IconData icon,
+    String label,
+    Color color,
+    VoidCallback onTap,
+  ) {
+    return ListTile(
+      contentPadding: const EdgeInsets.symmetric(horizontal: 4),
+      leading: Container(
+        padding: const EdgeInsets.all(8),
+        decoration: BoxDecoration(
+          color: color.withAlpha(20),
+          borderRadius: BorderRadius.circular(10),
+        ),
+        child: Icon(icon, color: color, size: 20),
+      ),
+      title: Text(
+        label,
+        style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14),
+      ),
+      trailing: const Icon(Icons.chevron_right, color: Color(0xFF90A4AE)),
+      onTap: onTap,
     );
   }
 }

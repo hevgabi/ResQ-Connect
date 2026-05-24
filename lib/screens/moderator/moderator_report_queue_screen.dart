@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../screens/settings/hamburger_menu_screen.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:intl/intl.dart';
@@ -12,7 +13,6 @@ import '../../widgets/moderator_bottom_nav.dart';
 import '../../widgets/ai_score_chip.dart';
 import '../../widgets/error_banner.dart';
 import '../../widgets/empty_state.dart';
-import '../settings/settings_screen.dart';
 import 'moderator_review_detail_screen.dart';
 
 class ModeratorReportQueueScreen extends StatelessWidget {
@@ -69,20 +69,20 @@ class ModeratorReportQueueScreen extends StatelessWidget {
                 elevation: 2,
                 actions: [
                   IconButton(
-                    icon: const Icon(
-                      Icons.settings_outlined,
-                      color: Colors.white,
-                    ),
-                    tooltip: 'Settings',
-                    onPressed: () => Navigator.push(
+                    icon: const Icon(Icons.menu, color: Colors.white),
+                    tooltip: 'Menu',
+                    onPressed: () => showHamburgerMenu(
                       context,
-                      MaterialPageRoute(builder: (_) => const SettingsScreen()),
+                      role: HamburgerRole.moderator,
                     ),
                   ),
                 ],
               ),
-            ],
-            body: _buildBody(context, snapshot),
+            ], // <--- Naisara nang tama ang array ng headerSliverBuilder
+            body: _buildBody(
+              context,
+              snapshot,
+            ), // <--- Diretsong nakapailalim na ngayon sa NestedScrollView
           );
         },
       ),
@@ -174,7 +174,6 @@ class _ReportQueueCardState extends State<_ReportQueueCard> {
     final lat = report.latitude;
     final lng = report.longitude;
 
-    // SAFE PARSING: Kinuha ang properties nang may null fallbacks para iwas error sa compilation
     final aiScore = report.aiScore;
     final createdAt = report.createdAt;
 
@@ -182,7 +181,6 @@ class _ReportQueueCardState extends State<_ReportQueueCard> {
         ? '${lat.toStringAsFixed(4)}, ${lng.toStringAsFixed(4)}'
         : 'Location unavailable';
 
-    // FIX: Nilagyan ng fallback `DateTime.now()` kung sakaling null ang `createdAt` mula sa Firestore
     final timeText = timeago.format(createdAt ?? DateTime.now());
 
     return GestureDetector(
@@ -248,7 +246,6 @@ class _ReportQueueCardState extends State<_ReportQueueCard> {
                       children: [
                         _TypeChip(type: reportType),
                         const Spacer(),
-                        // FIX: Ligtas na null-check bago mag-.toDouble() para hindi mag-crash kapag kaka-submit lang
                         AiScoreChip(score: (aiScore ?? 0).toDouble()),
                       ],
                     ),
@@ -298,7 +295,7 @@ class _ReportQueueCardState extends State<_ReportQueueCard> {
                       ],
                     ),
                     const SizedBox(height: 4),
-                    // Time — show both relative and absolute timestamp
+                    // Time
                     Row(
                       children: [
                         const Icon(
@@ -322,7 +319,7 @@ class _ReportQueueCardState extends State<_ReportQueueCard> {
                                 Text(
                                   DateFormat(
                                     'MMM d, yyyy · h:mm a',
-                                  ).format(createdAt!),
+                                  ).format(createdAt),
                                   style: const TextStyle(
                                     fontSize: 10,
                                     color: Color(0xFF90A4AE),

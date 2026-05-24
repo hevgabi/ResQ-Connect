@@ -5,6 +5,8 @@ import '../../services/firestore_service.dart';
 import '../../widgets/app_bottom_nav.dart';
 import '../../widgets/empty_state.dart';
 import '../../widgets/error_banner.dart';
+// Idinagdag na import para sa hamburger menu function at role
+import '../settings/hamburger_menu_screen.dart'; // i-adjust path depende sa location
 
 class AlertsScreen extends StatelessWidget {
   const AlertsScreen({super.key});
@@ -34,6 +36,18 @@ class AlertsScreen extends StatelessWidget {
           icon: const Icon(Icons.arrow_back, color: _blue),
           onPressed: () => Navigator.pop(context),
         ),
+        // Dito inilagay ang hinahanap na actions para sa burger menu
+        actions: [
+          IconButton(
+            icon: const Icon(
+              Icons.menu,
+              color: _blue,
+            ), // Pinalitan ko ng _blue para bumagay sa white appBar mo pre, pero pwede mong gawing Colors.white kung gusto mo
+            tooltip: 'Menu',
+            onPressed: () =>
+                showHamburgerMenu(context, role: HamburgerRole.citizen),
+          ),
+        ],
       ),
       body: StreamBuilder<List<AlertModel>>(
         stream: FirestoreService.instance.alertsStream(),

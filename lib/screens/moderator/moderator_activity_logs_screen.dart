@@ -2,6 +2,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
+import '../../screens/settings/hamburger_menu_screen.dart';
 
 import '../../providers/auth_provider.dart';
 import '../../widgets/moderator_bottom_nav.dart';
@@ -38,6 +39,14 @@ class _ModeratorActivityLogsScreenState
         ),
         automaticallyImplyLeading: false,
         elevation: 2,
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.menu, color: Colors.white),
+            tooltip: 'Menu',
+            onPressed: () =>
+                showHamburgerMenu(context, role: HamburgerRole.moderator),
+          ),
+        ],
         bottom: PreferredSize(
           preferredSize: const Size.fromHeight(52),
           child: Container(

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../widgets/app_bottom_nav.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 class EmergencyHotlinesScreen extends StatelessWidget {
@@ -90,11 +91,9 @@ class EmergencyHotlinesScreen extends StatelessWidget {
             fontSize: 18,
           ),
         ),
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back, color: _blue),
-          onPressed: () => Navigator.pop(context),
-        ),
+        automaticallyImplyLeading: false,
       ),
+      bottomNavigationBar: const AppBottomNav(currentIndex: 3),
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
@@ -122,23 +121,25 @@ class EmergencyHotlinesScreen extends StatelessWidget {
           const SizedBox(height: 20),
 
           // Grouped hotlines
-          ...grouped.entries.map((entry) => Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                entry.key,
-                style: const TextStyle(
-                  fontSize: 13,
-                  fontWeight: FontWeight.w700,
-                  color: Color(0xFF546E7A),
-                  letterSpacing: 0.5,
+          ...grouped.entries.map(
+            (entry) => Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  entry.key,
+                  style: const TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w700,
+                    color: Color(0xFF546E7A),
+                    letterSpacing: 0.5,
+                  ),
                 ),
-              ),
-              const SizedBox(height: 8),
-              ...entry.value.map((h) => _buildHotlineCard(h)),
-              const SizedBox(height: 16),
-            ],
-          )),
+                const SizedBox(height: 8),
+                ...entry.value.map((h) => _buildHotlineCard(h)),
+                const SizedBox(height: 16),
+              ],
+            ),
+          ),
         ],
       ),
     );

@@ -7,6 +7,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../../services/location_service.dart';
+import 'citizen_home_screen.dart';
 import 'rescuer_assigned_screen.dart';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -248,7 +249,11 @@ class _SosTriggerScreenState extends State<SosTriggerScreen>
   void _onCancel() {
     if (_isSubmitting) return;
     _cancelHold();
-    Navigator.pop(context);
+    Navigator.pushAndRemoveUntil(
+      context,
+      MaterialPageRoute(builder: (_) => const CitizenHomeScreen()),
+      (route) => false,
+    );
   }
 
   // ─── Build ────────────────────────────────────────────────────────────────

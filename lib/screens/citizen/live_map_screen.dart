@@ -3,6 +3,7 @@ import 'dart:math' as math;
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
+import '../../widgets/app_bottom_nav.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 
 import '../../models/evac_center_model.dart';
@@ -10,6 +11,8 @@ import '../../models/sos_request_model.dart';
 import '../../services/location_service.dart';
 import '../../widgets/app_bottom_nav.dart';
 import '../../services/storage_service.dart';
+// Idinagdag na import para sa hamburger menu function at role
+import '../settings/hamburger_menu_screen.dart'; // i-adjust path depende sa location
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -460,11 +463,19 @@ class _MapHeader extends StatelessWidget {
       padding: EdgeInsets.only(
         top: MediaQuery.of(context).padding.top + 10,
         bottom: 14,
-        left: 20,
+        left: 8, // Ginawa kong 8 para magkasya yung menu button sa gilid
         right: 20,
       ),
       child: Row(
         children: [
+          // Dito inilagay ang IconButton para magamit ang HamburgerMenu ng Citizen
+          IconButton(
+            icon: const Icon(Icons.menu, color: Colors.white),
+            tooltip: 'Menu',
+            onPressed: () =>
+                showHamburgerMenu(context, role: HamburgerRole.citizen),
+          ),
+          const SizedBox(width: 4),
           const Icon(Icons.map_rounded, color: Colors.white, size: 22),
           const SizedBox(width: 10),
           const Expanded(

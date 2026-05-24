@@ -2,12 +2,12 @@ import 'dart:async';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+import '../settings/hamburger_menu_screen.dart';
 
 import '../../services/firestore_service.dart';
 import '../../theme/app_theme.dart';
 import '../../widgets/rescuer_bottom_nav.dart';
 import '../../widgets/loading_overlay.dart';
-import '../settings/settings_screen.dart';
 
 class RescuerProfileScreen extends StatefulWidget {
   const RescuerProfileScreen({super.key});
@@ -56,34 +56,34 @@ class _RescuerProfileScreenState extends State<RescuerProfileScreen> {
         .doc(uid)
         .snapshots()
         .listen((doc) {
-      if (!mounted || !doc.exists) return;
-      final rData = doc.data();
-      setState(() {
-        _rescuerData = rData;
-        // Only update _onDuty if we are not in the middle of a local toggle
-        // to avoid flicker. Once Firestore confirms, _togglingDuty is cleared.
-        if (!_togglingDuty) {
-          _onDuty = rData?['is_on_duty'] ?? false;
-        }
-      });
-    });
+          if (!mounted || !doc.exists) return;
+          final rData = doc.data();
+          setState(() {
+            _rescuerData = rData;
+            // Only update _onDuty if we are not in the middle of a local toggle
+            // to avoid flicker. Once Firestore confirms, _togglingDuty is cleared.
+            if (!_togglingDuty) {
+              _onDuty = rData?['is_on_duty'] ?? false;
+            }
+          });
+        });
 
     _userStreamSub = FirebaseFirestore.instance
         .collection('users')
         .doc(uid)
         .snapshots()
         .listen((doc) {
-      if (!mounted || !doc.exists) return;
-      final uData = doc.data();
-      setState(() {
-        _userData = uData;
-        if (!_editingPersonal) {
-          _firstNameController.text = uData?['first_name'] ?? '';
-          _lastNameController.text = uData?['last_name'] ?? '';
-          _phoneController.text = uData?['phone'] ?? '';
-        }
-      });
-    });
+          if (!mounted || !doc.exists) return;
+          final uData = doc.data();
+          setState(() {
+            _userData = uData;
+            if (!_editingPersonal) {
+              _firstNameController.text = uData?['first_name'] ?? '';
+              _lastNameController.text = uData?['last_name'] ?? '';
+              _phoneController.text = uData?['phone'] ?? '';
+            }
+          });
+        });
   }
 
   /// Toggle duty status: update local state immediately for instant UI feedback,
@@ -138,7 +138,7 @@ class _RescuerProfileScreenState extends State<RescuerProfileScreen> {
     final first = _userData?['first_name'] ?? '';
     final last = _userData?['last_name'] ?? '';
     return ((first.isNotEmpty ? first[0] : '') +
-        (last.isNotEmpty ? last[0] : ''))
+            (last.isNotEmpty ? last[0] : ''))
         .toUpperCase();
   }
 
@@ -156,7 +156,7 @@ class _RescuerProfileScreenState extends State<RescuerProfileScreen> {
   Widget build(BuildContext context) {
     final activeMissions = (_rescuerData?['active_mission_count'] ?? 0) as int;
     final teamCapacity =
-    (_rescuerData?['team_capacity_max'] ?? _teamCapacityMax) as int;
+        (_rescuerData?['team_capacity_max'] ?? _teamCapacityMax) as int;
     final capacityRatio = teamCapacity > 0
         ? activeMissions / teamCapacity
         : 0.0;
@@ -184,12 +184,10 @@ class _RescuerProfileScreenState extends State<RescuerProfileScreen> {
           elevation: 0,
           actions: [
             IconButton(
-              icon: const Icon(Icons.settings_outlined, color: Colors.white),
-              tooltip: 'Settings',
-              onPressed: () => Navigator.push(
-                context,
-                MaterialPageRoute(builder: (_) => const SettingsScreen()),
-              ),
+              icon: const Icon(Icons.menu, color: Colors.white),
+              tooltip: 'Menu',
+              onPressed: () =>
+                  showHamburgerMenu(context, role: HamburgerRole.rescuer),
             ),
           ],
         ),
@@ -224,10 +222,10 @@ class _RescuerProfileScreenState extends State<RescuerProfileScreen> {
                       const SizedBox(height: 12),
                       Text(
                         '${_userData?['first_name'] ?? ''} ${_userData?['last_name'] ?? ''}'
-                            .trim()
-                            .isNotEmpty
+                                .trim()
+                                .isNotEmpty
                             ? '${_userData?['first_name'] ?? ''} ${_userData?['last_name'] ?? ''}'
-                            .trim()
+                                  .trim()
                             : 'Rescuer',
                         style: const TextStyle(
                           fontSize: 20,
@@ -477,11 +475,11 @@ class _RescuerProfileScreenState extends State<RescuerProfileScreen> {
   }
 
   Widget _editableField(
-      String label,
-      TextEditingController controller,
-      bool editing, {
-        TextInputType? keyboardType,
-      }) {
+    String label,
+    TextEditingController controller,
+    bool editing, {
+    TextInputType? keyboardType,
+  }) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -492,22 +490,22 @@ class _RescuerProfileScreenState extends State<RescuerProfileScreen> {
         const SizedBox(height: 4),
         editing
             ? TextField(
-          controller: controller,
-          keyboardType: keyboardType,
-          decoration: InputDecoration(
-            border: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(10),
-            ),
-            contentPadding: const EdgeInsets.symmetric(
-              horizontal: 12,
-              vertical: 10,
-            ),
-          ),
-        )
+                controller: controller,
+                keyboardType: keyboardType,
+                decoration: InputDecoration(
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  contentPadding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 10,
+                  ),
+                ),
+              )
             : Text(
-          controller.text.isNotEmpty ? controller.text : 'Not set',
-          style: const TextStyle(fontSize: 15),
-        ),
+                controller.text.isNotEmpty ? controller.text : 'Not set',
+                style: const TextStyle(fontSize: 15),
+              ),
       ],
     );
   }

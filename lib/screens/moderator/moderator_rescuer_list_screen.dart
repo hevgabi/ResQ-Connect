@@ -1,5 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
+import '../settings/hamburger_menu_screen.dart';
 
 import '../../widgets/moderator_bottom_nav.dart';
 import '../../widgets/empty_state.dart';
@@ -42,6 +43,15 @@ class _ModeratorRescuerListScreenState
         ),
         automaticallyImplyLeading: false,
         elevation: 2,
+
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.menu, color: Colors.white),
+            tooltip: 'Menu',
+            onPressed: () =>
+                showHamburgerMenu(context, role: HamburgerRole.moderator),
+          ),
+        ],
       ),
       body: Column(
         children: [

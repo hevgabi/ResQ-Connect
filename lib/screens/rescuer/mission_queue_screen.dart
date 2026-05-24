@@ -1,6 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+import '../../screens/settings/hamburger_menu_screen.dart';
 
 import '../../models/sos_request_model.dart'; // Tiyaking itong model file ang naglalaman ng SOSRequestModel class mo
 import '../../models/user_model.dart';
@@ -41,11 +42,9 @@ class _MissionQueueScreenState extends State<MissionQueueScreen> {
 
   // FIXED: Binago mula 'users' patungong 'rescuers' para mag-match sa iyong Firestore architecture
   void _subscribeToRescuerState() {
-    FirebaseFirestore.instance
-        .collection('rescuers')
-        .doc(uid)
-        .snapshots()
-        .listen((doc) {
+    FirebaseFirestore.instance.collection('rescuers').doc(uid).snapshots().listen((
+      doc,
+    ) {
       if (!mounted || !doc.exists) return;
       setState(() {
         _activeMissionCount = doc.data()?['active_mission_count'] ?? 0;
@@ -211,15 +210,13 @@ class _MissionQueueScreenState extends State<MissionQueueScreen> {
           .collection('sos_requests')
           .doc(sos.id)
           .update({
-        'deferred_by': FieldValue.arrayUnion([uid]),
-      });
+            'deferred_by': FieldValue.arrayUnion([uid]),
+          });
 
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Mission deferred.'),
-          ),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('Mission deferred.')));
       }
     } catch (e) {
       if (mounted) {
@@ -242,6 +239,14 @@ class _MissionQueueScreenState extends State<MissionQueueScreen> {
           style: TextStyle(fontWeight: FontWeight.bold),
         ),
         elevation: 0,
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.menu, color: Colors.white),
+            tooltip: 'Menu',
+            onPressed: () =>
+                showHamburgerMenu(context, role: HamburgerRole.rescuer),
+          ),
+        ],
       ),
       body: Column(
         children: [
@@ -308,42 +313,44 @@ class _MissionQueueScreenState extends State<MissionQueueScreen> {
             child: !_onDuty
                 ? _buildOffDutyState()
                 : StreamBuilder<List<SOSRequestModel>>(
-              // <--- FIXED: SOSRequestModel name alignment
-              stream: _firestoreService.openSOSStream(excludeRescuerId: uid),
-              builder: (context, snapshot) {
-                if (snapshot.connectionState == ConnectionState.waiting) {
-                  return const Center(child: CircularProgressIndicator());
-                }
+                    // <--- FIXED: SOSRequestModel name alignment
+                    stream: _firestoreService.openSOSStream(
+                      excludeRescuerId: uid,
+                    ),
+                    builder: (context, snapshot) {
+                      if (snapshot.connectionState == ConnectionState.waiting) {
+                        return const Center(child: CircularProgressIndicator());
+                      }
 
-                final sosList = snapshot.data ?? [];
+                      final sosList = snapshot.data ?? [];
 
-                if (sosList.isEmpty) {
-                  return _buildEmptyState();
-                }
+                      if (sosList.isEmpty) {
+                        return _buildEmptyState();
+                      }
 
-                return ListView.separated(
-                  padding: const EdgeInsets.all(12),
-                  itemCount: sosList.length,
-                  separatorBuilder: (_, __) => const SizedBox(height: 10),
-                  itemBuilder: (context, index) {
-                    final sos = sosList[index];
-                    final priorityStr = _priorityLabel(sos);
+                      return ListView.separated(
+                        padding: const EdgeInsets.all(12),
+                        itemCount: sosList.length,
+                        separatorBuilder: (_, __) => const SizedBox(height: 10),
+                        itemBuilder: (context, index) {
+                          final sos = sosList[index];
+                          final priorityStr = _priorityLabel(sos);
 
-                    return _MissionCard(
-                      sos: sos,
-                      priority: priorityStr,
-                      priorityColor: _priorityColor(priorityStr),
-                      timeElapsed: _timeElapsed(sos.createdAt),
-                      distanceKm: _distanceKm(sos),
-                      firestoreService: _firestoreService,
-                      onAccept: () => _acceptMission(sos),
-                      onDefer: () => _deferMission(sos),
-                      accepting: _accepting,
-                    );
-                  },
-                );
-              },
-            ),
+                          return _MissionCard(
+                            sos: sos,
+                            priority: priorityStr,
+                            priorityColor: _priorityColor(priorityStr),
+                            timeElapsed: _timeElapsed(sos.createdAt),
+                            distanceKm: _distanceKm(sos),
+                            firestoreService: _firestoreService,
+                            onAccept: () => _acceptMission(sos),
+                            onDefer: () => _deferMission(sos),
+                            accepting: _accepting,
+                          );
+                        },
+                      );
+                    },
+                  ),
           ),
         ],
       ),
@@ -509,7 +516,7 @@ class _MissionCard extends StatelessWidget {
                         Text(
                           citizen != null
                               ? '${citizen.firstName ?? ''} ${citizen.lastName ?? ''}'
-                              .trim()
+                                    .trim()
                               : 'Loading...',
                           style: const TextStyle(
                             fontWeight: FontWeight.bold,
@@ -593,13 +600,13 @@ class _MissionCard extends StatelessWidget {
                             ),
                             child: accepting
                                 ? const SizedBox(
-                              width: 18,
-                              height: 18,
-                              child: CircularProgressIndicator(
-                                strokeWidth: 2,
-                                color: Colors.white,
-                              ),
-                            )
+                                    width: 18,
+                                    height: 18,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                      color: Colors.white,
+                                    ),
+                                  )
                                 : const Text('Accept'),
                           ),
                         ),

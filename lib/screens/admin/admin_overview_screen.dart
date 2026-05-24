@@ -5,7 +5,7 @@ import 'package:timeago/timeago.dart' as timeago;
 import '../../services/firestore_service.dart';
 import '../../widgets/error_banner.dart';
 import '../../widgets/empty_state.dart';
-import '../settings/settings_screen.dart';
+import '../../screens/settings/hamburger_menu_screen.dart';
 import 'admin_incidents_screen.dart';
 
 class AdminOverviewScreen extends StatelessWidget {
@@ -74,11 +74,14 @@ class AdminOverviewScreen extends StatelessWidget {
         ),
         actions: [
           IconButton(
-            icon: const Icon(Icons.settings_outlined, color: Colors.white),
-            tooltip: 'Settings',
+            icon: const Icon(Icons.menu, color: Colors.white),
+            tooltip: 'Menu',
             onPressed: () => Navigator.push(
               context,
-              MaterialPageRoute(builder: (_) => const SettingsScreen()),
+              MaterialPageRoute(
+                builder: (_) =>
+                    const HamburgerMenuScreen(role: HamburgerRole.citizen),
+              ),
             ),
           ),
         ],

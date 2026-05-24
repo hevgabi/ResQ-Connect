@@ -2,7 +2,6 @@ import 'dart:async';
 
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -12,14 +11,39 @@ import '../../services/firestore_service.dart';
 import '../../theme/app_theme.dart';
 import '../entry/login_screen.dart';
 
-class SettingsScreen extends StatefulWidget {
-  const SettingsScreen({super.key});
+// =============================================================================
+// ROLE ENUM
+// =============================================================================
 
-  @override
-  State<SettingsScreen> createState() => _SettingsScreenState();
+enum HamburgerRole { citizen, rescuer, moderator }
+
+// =============================================================================
+// PUBLIC HELPER — call this from any screen
+// =============================================================================
+
+void showHamburgerMenu(
+  BuildContext context, {
+  HamburgerRole role = HamburgerRole.citizen,
+}) {
+  Navigator.push(
+    context,
+    MaterialPageRoute(builder: (_) => HamburgerMenuScreen(role: role)),
+  );
 }
 
-class _SettingsScreenState extends State<SettingsScreen> {
+// =============================================================================
+// MAIN SCREEN
+// =============================================================================
+
+class HamburgerMenuScreen extends StatefulWidget {
+  final HamburgerRole role;
+  const HamburgerMenuScreen({super.key, required this.role});
+
+  @override
+  State<HamburgerMenuScreen> createState() => _HamburgerMenuScreenState();
+}
+
+class _HamburgerMenuScreenState extends State<HamburgerMenuScreen> {
   StreamSubscription<UserModel?>? _userSub;
   UserModel? _user;
 
@@ -35,8 +59,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
               if (mounted) setState(() => _user = user);
             },
             onError: (e) {
-              // PERMISSION_DENIED fires after logout — cancel and pop immediately
-              debugPrint('SettingsScreen userStream error (post-logout): $e');
+              debugPrint(
+                'HamburgerMenuScreen userStream error (post-logout): $e',
+              );
               _userSub?.cancel();
               if (mounted) Navigator.of(context).pop();
             },
@@ -50,16 +75,28 @@ class _SettingsScreenState extends State<SettingsScreen> {
     super.dispose();
   }
 
+  Color get _roleAccent {
+    switch (widget.role) {
+      case HamburgerRole.rescuer:
+        return const Color(0xFF1FAA59);
+      case HamburgerRole.moderator:
+        return const Color(0xFF6A1B9A);
+      case HamburgerRole.citizen:
+      default:
+        return AppTheme.primaryBlue;
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final user = _user;
     return Scaffold(
       backgroundColor: AppTheme.background,
       appBar: AppBar(
-        backgroundColor: AppTheme.primaryBlue,
+        backgroundColor: _roleAccent,
         foregroundColor: Colors.white,
         title: const Text(
-          'Settings',
+          'Menu',
           style: TextStyle(fontWeight: FontWeight.bold),
         ),
         elevation: 0,
@@ -71,25 +108,65 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
           const SizedBox(height: 8),
 
+          // ── Role-specific section ────────────────────────────────────
+          if (widget.role == HamburgerRole.citizen) ...[
+            _SectionHeader(title: 'Support'),
+            _MenuTile(
+              icon: Icons.help_outline,
+              iconColor: AppTheme.primaryBlue,
+              title: 'Help & Support',
+              subtitle: 'FAQs and support articles',
+              badge: 'Coming Soon',
+              onTap: () => _showComingSoon(context),
+            ),
+            const SizedBox(height: 8),
+          ],
+
+          if (widget.role == HamburgerRole.rescuer) ...[
+            _SectionHeader(title: 'Support'),
+            _MenuTile(
+              icon: Icons.help_outline,
+              iconColor: const Color(0xFF1FAA59),
+              title: 'Help & Support',
+              subtitle: 'FAQs and support articles',
+              badge: 'Coming Soon',
+              onTap: () => _showComingSoon(context),
+            ),
+            const SizedBox(height: 8),
+          ],
+
+          if (widget.role == HamburgerRole.moderator) ...[
+            _SectionHeader(title: 'Support'),
+            _MenuTile(
+              icon: Icons.help_outline,
+              iconColor: const Color(0xFF6A1B9A),
+              title: 'Help & Support',
+              subtitle: 'FAQs and support articles',
+              badge: 'Coming Soon',
+              onTap: () => _showComingSoon(context),
+            ),
+            const SizedBox(height: 8),
+          ],
+
           // ── Account Section ──────────────────────────────────────────
           _SectionHeader(title: 'Account'),
-          _SettingsTile(
+          _MenuTile(
             icon: Icons.person_outline,
-            iconColor: AppTheme.primaryBlue,
+            iconColor: _roleAccent,
             title: 'Personal Information',
             subtitle: 'Name, phone number',
             onTap: () => _showComingSoon(context),
           ),
-          _SettingsTile(
+          _MenuTile(
             icon: Icons.email_outlined,
-            iconColor: AppTheme.primaryBlue,
+            iconColor: _roleAccent,
             title: 'Email Address',
             subtitle: user?.email ?? '—',
             onTap: () => _showComingSoon(context),
           ),
-          _SettingsTile(
+          _MenuTile(
             icon: Icons.lock_outline,
-            iconColor: AppTheme.primaryBlue,
+            iconColor: _roleAccent,
             title: 'Change Password',
             subtitle: 'Update your password',
             onTap: () => _showChangePasswordDialog(context),
@@ -99,14 +176,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
           // ── Notifications Section ────────────────────────────────────
           _SectionHeader(title: 'Notifications'),
-          _SettingsSwitchTile(
+          _SwitchMenuTile(
             icon: Icons.notifications_outlined,
             iconColor: const Color(0xFFE65100),
             title: 'Push Notifications',
             subtitle: 'Alerts, updates, and messages',
             initialValue: true,
           ),
-          _SettingsSwitchTile(
+          _SwitchMenuTile(
             icon: Icons.campaign_outlined,
             iconColor: const Color(0xFFE65100),
             title: 'Emergency Alerts',
@@ -118,14 +195,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
           // ── Privacy & Security Section ───────────────────────────────
           _SectionHeader(title: 'Privacy & Security'),
-          _SettingsTile(
+          _MenuTile(
             icon: Icons.shield_outlined,
             iconColor: const Color(0xFF1B5E20),
             title: 'Privacy Settings',
             subtitle: 'Manage your data and visibility',
             onTap: () => _showComingSoon(context),
           ),
-          _SettingsTile(
+          _MenuTile(
             icon: Icons.location_on_outlined,
             iconColor: const Color(0xFF1B5E20),
             title: 'Location Access',
@@ -135,16 +212,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
           const SizedBox(height: 8),
 
-          // ── Support Section ──────────────────────────────────────────
-          _SectionHeader(title: 'Help & Support'),
-          _SettingsTile(
-            icon: Icons.help_outline,
-            iconColor: AppTheme.textSecondary,
-            title: 'Help Center',
-            subtitle: 'FAQs and support articles',
-            onTap: () => _showComingSoon(context),
-          ),
-          _SettingsTile(
+          // ── About Section ────────────────────────────────────────────
+          _SectionHeader(title: 'About'),
+          _MenuTile(
             icon: Icons.info_outline,
             iconColor: AppTheme.textSecondary,
             title: 'About ResQConnect',
@@ -154,9 +224,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
           const SizedBox(height: 8),
 
-          // ── Logout ───────────────────────────────────────────────────
+          // ── Account Actions ──────────────────────────────────────────
           _SectionHeader(title: 'Account Actions'),
-          _SettingsTile(
+          _MenuTile(
             icon: Icons.logout,
             iconColor: AppTheme.dangerRed,
             title: 'Log Out',
@@ -175,8 +245,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
   // ── Dialogs ──────────────────────────────────────────────────────────────────
 
   void _showLogoutDialog(BuildContext context) {
-    // Capture BOTH the provider and navigator before the dialog opens.
-    // After Navigator.pop(ctx), the dialog's ctx is gone — but these refs survive.
     final authProvider = context.read<app_auth.AuthProvider>();
     showDialog(
       context: context,
@@ -204,12 +272,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
               ),
             ),
             onPressed: () async {
-              Navigator.pop(ctx); // isara ang dialog
+              Navigator.pop(ctx);
               await authProvider.logout();
-              // Replace the entire navigator stack with LoginScreen.
-              // Kailangan ito kasi ang BottomNav ay gumagamit ng
-              // pushAndRemoveUntil na nag-aalis ng _RootRouter sa stack,
-              // kaya hindi na siya makaka-redirect automatically.
               if (context.mounted) {
                 Navigator.of(context).pushAndRemoveUntil(
                   MaterialPageRoute(builder: (_) => const LoginScreen()),
@@ -349,7 +413,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 }
 
-// ── Sub-widgets ────────────────────────────────────────────────────────────────
+// =============================================================================
+// SUB-WIDGETS
+// =============================================================================
 
 class _ProfileHeaderTile extends StatelessWidget {
   final UserModel? user;
@@ -387,7 +453,6 @@ class _ProfileHeaderTile extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 20),
       child: Row(
         children: [
-          // Avatar
           CircleAvatar(
             radius: 34,
             backgroundColor: _roleColor().withValues(alpha: 0.15),
@@ -406,7 +471,6 @@ class _ProfileHeaderTile extends StatelessWidget {
                 : null,
           ),
           const SizedBox(width: 14),
-          // Name + email + role badge
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -477,16 +541,17 @@ class _SectionHeader extends StatelessWidget {
   }
 }
 
-class _SettingsTile extends StatelessWidget {
+class _MenuTile extends StatelessWidget {
   final IconData icon;
   final Color iconColor;
   final String title;
   final String subtitle;
   final Color? titleColor;
   final bool showChevron;
+  final String? badge;
   final VoidCallback onTap;
 
-  const _SettingsTile({
+  const _MenuTile({
     required this.icon,
     required this.iconColor,
     required this.title,
@@ -494,6 +559,7 @@ class _SettingsTile extends StatelessWidget {
     required this.onTap,
     this.titleColor,
     this.showChevron = true,
+    this.badge,
   });
 
   @override
@@ -527,7 +593,26 @@ class _SettingsTile extends StatelessWidget {
                 color: AppTheme.textSecondary,
               ),
             ),
-            trailing: showChevron
+            trailing: badge != null
+                ? Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 8,
+                      vertical: 3,
+                    ),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF546E7A).withValues(alpha: 0.12),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Text(
+                      badge!,
+                      style: const TextStyle(
+                        fontSize: 10,
+                        fontWeight: FontWeight.w700,
+                        color: Color(0xFF546E7A),
+                      ),
+                    ),
+                  )
+                : showChevron
                 ? const Icon(
                     Icons.chevron_right,
                     color: AppTheme.textSecondary,
@@ -543,14 +628,14 @@ class _SettingsTile extends StatelessWidget {
   }
 }
 
-class _SettingsSwitchTile extends StatefulWidget {
+class _SwitchMenuTile extends StatefulWidget {
   final IconData icon;
   final Color iconColor;
   final String title;
   final String subtitle;
   final bool initialValue;
 
-  const _SettingsSwitchTile({
+  const _SwitchMenuTile({
     required this.icon,
     required this.iconColor,
     required this.title,
@@ -559,10 +644,10 @@ class _SettingsSwitchTile extends StatefulWidget {
   });
 
   @override
-  State<_SettingsSwitchTile> createState() => _SettingsSwitchTileState();
+  State<_SwitchMenuTile> createState() => _SwitchMenuTileState();
 }
 
-class _SettingsSwitchTileState extends State<_SettingsSwitchTile> {
+class _SwitchMenuTileState extends State<_SwitchMenuTile> {
   late bool _value;
 
   @override

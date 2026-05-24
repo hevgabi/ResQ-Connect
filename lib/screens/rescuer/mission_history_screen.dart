@@ -8,6 +8,7 @@ import '../../models/sos_request_model.dart';
 import '../../services/firestore_service.dart';
 import '../../theme/app_theme.dart';
 import '../../widgets/rescuer_bottom_nav.dart';
+import '../../screens/settings/hamburger_menu_screen.dart';
 
 class MissionHistoryScreen extends StatelessWidget {
   const MissionHistoryScreen({super.key});
@@ -27,6 +28,14 @@ class MissionHistoryScreen extends StatelessWidget {
           style: TextStyle(fontWeight: FontWeight.bold),
         ),
         elevation: 0,
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.menu, color: Colors.white),
+            tooltip: 'Menu',
+            onPressed: () =>
+                showHamburgerMenu(context, role: HamburgerRole.rescuer),
+          ),
+        ],
       ),
       body: StreamBuilder<List<MissionModel>>(
         stream: firestoreService.rescuerMissionsStream(uid),

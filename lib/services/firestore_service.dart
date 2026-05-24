@@ -40,8 +40,8 @@ class FirestoreService {
         .snapshots()
         .map(
           (snap) =>
-          snap.docs.map((doc) => AlertModel.fromFirestore(doc)).toList(),
-    );
+              snap.docs.map((doc) => AlertModel.fromFirestore(doc)).toList(),
+        );
   }
 
   /// All SOS requests with status == 'open', oldest first (FIFO dispatch).
@@ -53,18 +53,18 @@ class FirestoreService {
         .orderBy('created_at', descending: false)
         .snapshots()
         .map((snap) {
-      final all = snap.docs
-          .map((doc) => SOSRequestModel.fromFirestore(doc))
-          .toList();
+          final all = snap.docs
+              .map((doc) => SOSRequestModel.fromFirestore(doc))
+              .toList();
 
-      if (excludeRescuerId == null) return all;
+          if (excludeRescuerId == null) return all;
 
-      // Filter out SOS requests that this rescuer has already deferred.
-      return all.where((sos) {
-        final deferredBy = (sos.deferredBy ?? []);
-        return !deferredBy.contains(excludeRescuerId);
-      }).toList();
-    });
+          // Filter out SOS requests that this rescuer has already deferred.
+          return all.where((sos) {
+            final deferredBy = (sos.deferredBy ?? []);
+            return !deferredBy.contains(excludeRescuerId);
+          }).toList();
+        });
   }
 
   /// Reports awaiting moderation, oldest first.
@@ -75,8 +75,8 @@ class FirestoreService {
         .snapshots()
         .map(
           (snap) =>
-          snap.docs.map((doc) => ReportModel.fromFirestore(doc)).toList(),
-    );
+              snap.docs.map((doc) => ReportModel.fromFirestore(doc)).toList(),
+        );
   }
 
   /// Published reports, newest first (community feed source).
@@ -87,8 +87,8 @@ class FirestoreService {
         .snapshots()
         .map(
           (snap) =>
-          snap.docs.map((doc) => ReportModel.fromFirestore(doc)).toList(),
-    );
+              snap.docs.map((doc) => ReportModel.fromFirestore(doc)).toList(),
+        );
   }
 
   /// Live updates for a single SOS request document.
@@ -115,8 +115,8 @@ class FirestoreService {
         .snapshots()
         .map(
           (snap) =>
-          snap.docs.map((doc) => MissionModel.fromFirestore(doc)).toList(),
-    );
+              snap.docs.map((doc) => MissionModel.fromFirestore(doc)).toList(),
+        );
   }
 
   /// Latest 20 community feed items, newest first.
@@ -128,11 +128,11 @@ class FirestoreService {
         .snapshots()
         .map(
           (snap) => snap.docs
-          .map(
-            (doc) => {'id': doc.id, ...doc.data() as Map<String, dynamic>},
-      )
-          .toList(),
-    );
+              .map(
+                (doc) => {'id': doc.id, ...doc.data() as Map<String, dynamic>},
+              )
+              .toList(),
+        );
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
@@ -191,9 +191,9 @@ class FirestoreService {
 
   /// Updates an existing mission document.
   Future<void> updateMission(
-      String missionId,
-      Map<String, dynamic> data,
-      ) async {
+    String missionId,
+    Map<String, dynamic> data,
+  ) async {
     await _missions.doc(missionId).update(data);
   }
 
@@ -291,14 +291,14 @@ class FirestoreService {
         .doc(uid)
         .snapshots()
         .map((doc) {
-      if (!doc.exists) return null;
-      return UserModel.fromFirestore(doc);
-    })
+          if (!doc.exists) return null;
+          return UserModel.fromFirestore(doc);
+        })
         .handleError((e) {
-      // Firestore throws PERMISSION_DENIED after logout — ignore silently.
-      // _RootRouter will automatically redirect to LoginScreen.
-      debugPrint('userStream permission error (post-logout): $e');
-    });
+          // Firestore throws PERMISSION_DENIED after logout — ignore silently.
+          // _RootRouter will automatically redirect to LoginScreen.
+          debugPrint('userStream permission error (post-logout): $e');
+        });
   }
 
   /// Fetch a user document as a [UserModel]. Returns null if not found.
@@ -322,9 +322,9 @@ class FirestoreService {
 
   /// Returns the [limit] most-recent SOS requests by a given citizen.
   Future<List<SOSRequestModel>> getRecentSosByUser(
-      String uid, {
-        int limit = 5,
-      }) async {
+    String uid, {
+    int limit = 5,
+  }) async {
     final snap = await _sosRequests
         .where('citizen_id', isEqualTo: uid)
         .orderBy('created_at', descending: true)
@@ -335,9 +335,9 @@ class FirestoreService {
 
   /// Returns the [limit] most-recent reports by a given reporter.
   Future<List<ReportModel>> getRecentReportsByUser(
-      String uid, {
-        int limit = 5,
-      }) async {
+    String uid, {
+    int limit = 5,
+  }) async {
     final snap = await _reports
         .where('reporter_id', isEqualTo: uid)
         .orderBy('created_at', descending: true)
@@ -439,7 +439,7 @@ class FirestoreService {
         if (createdAt != null && publishedAt != null) {
           final diffMinutes =
               publishedAt.toDate().difference(createdAt.toDate()).inSeconds /
-                  60.0;
+              60.0;
           if (diffMinutes >= 0) {
             totalReviewMinutes += diffMinutes;
             reviewedWithTime++;
@@ -471,6 +471,16 @@ class FirestoreService {
         'lowConfidence': lowConfidence,
         'recentActivity': recentActivity,
       };
+    });
+  }
+
+  /// Creates a new community post (citizen social post in community feed)
+  Future<void> createCommunityPost(Map<String, dynamic> data) async {
+    await _communityFeed.add({
+      ...data,
+      'created_at': FieldValue.serverTimestamp(),
+      'likes': 0,
+      'comments': 0,
     });
   }
 }

@@ -2,6 +2,7 @@ import 'dart:io';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+import '../../screens/settings/hamburger_menu_screen.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
 import 'package:timeago/timeago.dart' as timeago;
@@ -16,9 +17,6 @@ import '../../theme/app_theme.dart';
 import '../../widgets/app_bottom_nav.dart';
 import '../../widgets/loading_overlay.dart';
 import '../../widgets/role_badge.dart';
-import '../settings/settings_screen.dart';
-
-// Kung saan man nanggagaling ang UserRole enum mo, siguraduhing imported o available dito.
 
 class CitizenProfileScreen extends StatefulWidget {
   const CitizenProfileScreen({super.key});
@@ -175,7 +173,6 @@ class _CitizenProfileScreenState extends State<CitizenProfileScreen> {
     }
   }
 
-  // Helper method para i-convert ang String role ng UserModel papuntang UserRole enum ng RoleBadge
   UserRole _mapStringToUserRole(String role) {
     switch (role.toLowerCase()) {
       case 'admin':
@@ -193,7 +190,6 @@ class _CitizenProfileScreenState extends State<CitizenProfileScreen> {
   Widget build(BuildContext context) {
     final uid = FirebaseAuth.instance.currentUser?.uid;
     if (uid == null) {
-      // User naka-logout na — i-pop lahat para makita ng _RootRouter ang LoginScreen
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) {
           Navigator.of(context).popUntil((route) => route.isFirst);
@@ -227,18 +223,13 @@ class _CitizenProfileScreenState extends State<CitizenProfileScreen> {
               elevation: 0,
               actions: [
                 IconButton(
-                  icon: const Icon(
-                    Icons.settings_outlined,
-                    color: Colors.white,
-                  ),
-                  tooltip: 'Settings',
-                  onPressed: () => Navigator.push(
-                    context,
-                    MaterialPageRoute(builder: (_) => const SettingsScreen()),
-                  ),
+                  icon: const Icon(Icons.menu, color: Colors.white),
+                  tooltip: 'Menu',
+                  onPressed: () =>
+                      showHamburgerMenu(context, role: HamburgerRole.citizen),
                 ),
-              ],
-            ),
+              ], // Inayos na list bracket ng actions
+            ), // Inayos na panara ng AppBar
             body: user == null
                 ? const Center(child: CircularProgressIndicator())
                 : SingleChildScrollView(
@@ -327,8 +318,8 @@ class _CitizenProfileScreenState extends State<CitizenProfileScreen> {
               style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
             ),
             const SizedBox(height: 6),
-            // Dito natin ginamit yung mapper function para maayos ang String to UserRole enum error
-            RoleBadge(role: UserRole.values.byName(user.role.toLowerCase())),
+            // Ginamit na dito yung ginawa mong _mapStringToUserRole para iwas crash sa enum
+            RoleBadge(role: _mapStringToUserRole(user.role)),
           ],
         ),
       ),

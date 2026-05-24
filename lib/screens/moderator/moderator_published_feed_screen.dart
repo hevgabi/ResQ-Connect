@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../screens/settings/hamburger_menu_screen.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:provider/provider.dart';
 import 'package:intl/intl.dart';
@@ -9,7 +10,6 @@ import '../../services/firestore_service.dart';
 import '../../widgets/moderator_bottom_nav.dart';
 import '../../widgets/error_banner.dart';
 import '../../widgets/empty_state.dart';
-import '../settings/settings_screen.dart';
 
 // TANDAAN: Kung may ginawa kang ReportModel class, siguraduhing i-import mo rito kung kinakailangan.
 // halimbawa: import '../../models/report_model.dart';
@@ -35,12 +35,10 @@ class ModeratorPublishedFeedScreen extends StatelessWidget {
           ),
           actions: [
             IconButton(
-              icon: const Icon(Icons.settings_outlined, color: Colors.white),
-              tooltip: 'Settings',
-              onPressed: () => Navigator.push(
-                context,
-                MaterialPageRoute(builder: (_) => const SettingsScreen()),
-              ),
+              icon: const Icon(Icons.menu, color: Colors.white),
+              tooltip: 'Menu',
+              onPressed: () =>
+                  showHamburgerMenu(context, role: HamburgerRole.moderator),
             ),
           ],
           bottom: const TabBar(

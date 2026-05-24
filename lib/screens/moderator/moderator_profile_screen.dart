@@ -1,11 +1,11 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+import '../../screens/settings/hamburger_menu_screen.dart';
 
 import '../../services/firestore_service.dart';
 import '../../widgets/moderator_bottom_nav.dart';
 import '../../widgets/loading_overlay.dart';
-import '../settings/settings_screen.dart';
 
 class ModeratorProfileScreen extends StatefulWidget {
   const ModeratorProfileScreen({super.key});
@@ -153,16 +153,12 @@ class _ModeratorProfileScreenState extends State<ModeratorProfileScreen> {
           automaticallyImplyLeading: false,
           actions: [
             IconButton(
-              icon: const Icon(Icons.settings_outlined, color: Colors.white),
-              tooltip: 'Settings',
-              onPressed: () => Navigator.push(
-                context,
-                MaterialPageRoute(builder: (_) => const SettingsScreen()),
-              ),
+              icon: const Icon(Icons.menu, color: Colors.white),
+              tooltip: 'Menu',
+              onPressed: () => showHamburgerMenu(context, role: HamburgerRole.moderator),
             ),
-          ],
-          elevation: 2,
-        ),
+          ], // Inayos na list bracket ng actions
+        ), // Inayos na panara ng AppBar
         body: _loading
             ? const Center(
                 child: CircularProgressIndicator(color: Color(0xFF6A1B9A)),
@@ -177,7 +173,7 @@ class _ModeratorProfileScreenState extends State<ModeratorProfileScreen> {
     final email = FirebaseAuth.instance.currentUser?.email ?? '';
     final firstName = _userData?['first_name'] ?? '';
     final lastName = _userData?['last_name'] ?? '';
-    final fullName = '${firstName} ${lastName}'.trim();
+    final fullName = '$firstName $lastName'.trim();
     final initials = _initials(firstName, lastName, email);
     final memberSince = (_userData?['created_at'] as Timestamp?)?.toDate();
 
@@ -394,18 +390,8 @@ class _ModeratorProfileScreenState extends State<ModeratorProfileScreen> {
 
   String _formatDate(DateTime dt) {
     const months = [
-      'Jan',
-      'Feb',
-      'Mar',
-      'Apr',
-      'May',
-      'Jun',
-      'Jul',
-      'Aug',
-      'Sep',
-      'Oct',
-      'Nov',
-      'Dec',
+      'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+      'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
     ];
     return '${months[dt.month - 1]} ${dt.year}';
   }
