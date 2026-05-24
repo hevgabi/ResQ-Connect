@@ -438,6 +438,18 @@ class FirestoreService {
     });
   }
 
+  // ── Community Feed Writes ──────────────────────────────────────────────────
+
+  /// Directly creates a post on the public community feed.
+  /// Invoked by citizens when submitting announcements or safe updates.
+  Future<String> createCommunityPost(Map<String, dynamic> data) async {
+    final ref = await _communityFeed.add({
+      ...data,
+      'published_at': FieldValue.serverTimestamp(),
+    });
+    return ref.id;
+  }
+
   // ── Evacuation Centers ────────────────────────────────────────────────────
 
   /// One-time fetch of all evac centers as raw maps.
