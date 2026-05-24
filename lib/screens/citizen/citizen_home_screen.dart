@@ -17,10 +17,11 @@ import '../../widgets/empty_state.dart';
 import '../citizen/sos_trigger_screen.dart';
 import '../citizen/live_map_screen.dart';
 import '../citizen/alerts_screen.dart';
+import '../citizen/emergency_hotlines_screen.dart';
 
-// ─────────────────────────────────────────────────────────────────────────────
+// ───────────────────────────────────────────────────────────────────────────────
 // SKELETON HELPERS
-// ─────────────────────────────────────────────────────────────────────────────
+// ───────────────────────────────────────────────────────────────────────────────
 
 class _SkeletonBox extends StatefulWidget {
   final double width;
@@ -76,9 +77,9 @@ class _SkeletonBoxState extends State<_SkeletonBox>
   }
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
+// ───────────────────────────────────────────────────────────────────────────────
 // MAIN SCREEN
-// ─────────────────────────────────────────────────────────────────────────────
+// ───────────────────────────────────────────────────────────────────────────────
 
 class CitizenHomeScreen extends StatefulWidget {
   const CitizenHomeScreen({super.key});
@@ -88,7 +89,6 @@ class CitizenHomeScreen extends StatefulWidget {
 }
 
 class _CitizenHomeScreenState extends State<CitizenHomeScreen> {
-  // ── colors ──────────────────────────────────────────────────────────────────
   static const _blue = Color(0xFF0D47A1);
   static const _red = Color(0xFFD7263D);
   static const _green = Color(0xFF1FAA59);
@@ -96,13 +96,11 @@ class _CitizenHomeScreenState extends State<CitizenHomeScreen> {
   static const _bg = Color(0xFFF5F7FA);
   static const _textSec = Color(0xFF546E7A);
 
-  // ── state ───────────────────────────────────────────────────────────────────
   final Set<String> _dismissedAlerts = {};
   double? _userLat;
   double? _userLng;
   bool _locationLoaded = false;
 
-  // futures (set after location is ready)
   Future<Map<String, dynamic>?>? _rescuerFuture;
   Future<Map<String, dynamic>?>? _evacFuture;
 
@@ -114,7 +112,6 @@ class _CitizenHomeScreenState extends State<CitizenHomeScreen> {
     _initLocation();
   }
 
-  // ── location init ────────────────────────────────────────────────────────────
   Future<void> _initLocation() async {
     final pos = await LocationService.instance.getCurrentPosition();
     if (!mounted) return;
@@ -139,7 +136,6 @@ class _CitizenHomeScreenState extends State<CitizenHomeScreen> {
     }
   }
 
-  // ── Haversine distance (km) ───────────────────────────────────────────────
   double _haversine(double lat1, double lng1, double lat2, double lng2) {
     const r = 6371.0;
     final dLat = _deg2rad(lat2 - lat1);
@@ -155,7 +151,6 @@ class _CitizenHomeScreenState extends State<CitizenHomeScreen> {
 
   double _deg2rad(double d) => d * pi / 180;
 
-  // ── fetch nearest on-duty rescuer ─────────────────────────────────────────
   Future<Map<String, dynamic>?> _fetchNearestRescuer() async {
     if (_userLat == null || _userLng == null) return null;
     final snap = await FirebaseFirestore.instance
@@ -179,7 +174,7 @@ class _CitizenHomeScreenState extends State<CitizenHomeScreen> {
         nearest = {
           'name': d['team_name'] ?? d['name'] ?? 'Rescue Team',
           'distance_km': dist,
-          'eta_min': ((dist / 40) * 60).round(), // 40 km/h avg
+          'eta_min': ((dist / 40) * 60).round(),
           'count': snap.docs.length,
         };
       }
@@ -187,7 +182,6 @@ class _CitizenHomeScreenState extends State<CitizenHomeScreen> {
     return nearest;
   }
 
-  // ── fetch nearest evacuation center ──────────────────────────────────────
   Future<Map<String, dynamic>?> _fetchNearestEvacCenter() async {
     if (_userLat == null || _userLng == null) return null;
     final snap = await FirebaseFirestore.instance
@@ -219,19 +213,13 @@ class _CitizenHomeScreenState extends State<CitizenHomeScreen> {
     return nearest;
   }
 
-  // ── pull-to-refresh ────────────────────────────────────────────────────────
   Future<void> _onRefresh() async {
     await _initLocation();
   }
 
-  // ─────────────────────────────────────────────────────────────────────────────
-  // BUILD
-  // ─────────────────────────────────────────────────────────────────────────────
-
   @override
   Widget build(BuildContext context) {
     final auth = context.watch<AuthProvider>();
-    final uid = auth.user?.uid;
 
     return Scaffold(
       backgroundColor: _bg,
@@ -243,27 +231,14 @@ class _CitizenHomeScreenState extends State<CitizenHomeScreen> {
         child: ListView(
           padding: const EdgeInsets.only(bottom: 100),
           children: [
-            // ── Alert Banners ──────────────────────────────────────────────
             _buildAlertBanners(),
-
             const SizedBox(height: 16),
-
-            // ── Greeting + SOS CTA ─────────────────────────────────────────
             _buildGreetingAndSOS(auth),
-
             const SizedBox(height: 16),
-
-            // ── Rescue Teams Card ──────────────────────────────────────────
             _buildRescueTeamsCard(),
-
             const SizedBox(height: 12),
-
-            // ── Evacuation Center Card ─────────────────────────────────────
             _buildEvacCenterCard(),
-
             const SizedBox(height: 20),
-
-            // ── Community Feed header ──────────────────────────────────────
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 16),
               child: Row(
@@ -287,10 +262,7 @@ class _CitizenHomeScreenState extends State<CitizenHomeScreen> {
                 ],
               ),
             ),
-
             const SizedBox(height: 4),
-
-            // ── Community Feed ─────────────────────────────────────────────
             _buildCommunityFeed(),
           ],
         ),
@@ -299,7 +271,6 @@ class _CitizenHomeScreenState extends State<CitizenHomeScreen> {
     );
   }
 
-  // ── AppBar ─────────────────────────────────────────────────────────────────
   PreferredSizeWidget _buildAppBar(BuildContext context) {
     return AppBar(
       backgroundColor: Colors.white,
@@ -365,7 +336,6 @@ class _CitizenHomeScreenState extends State<CitizenHomeScreen> {
     );
   }
 
-  // ── Greeting + SOS ────────────────────────────────────────────────────────
   Widget _buildGreetingAndSOS(AuthProvider auth) {
     final name = auth.user?.displayName?.split(' ').first ?? 'Citizen';
     return Padding(
@@ -416,6 +386,7 @@ class _CitizenHomeScreenState extends State<CitizenHomeScreen> {
             ),
           ),
           const SizedBox(height: 10),
+          // View Live Map Button
           SizedBox(
             width: double.infinity,
             height: 46,
@@ -438,12 +409,59 @@ class _CitizenHomeScreenState extends State<CitizenHomeScreen> {
               ),
             ),
           ),
+          const SizedBox(height: 10),
+          // Hotlines + Rescue Status Buttons
+          Row(
+            children: [
+              Expanded(
+                child: OutlinedButton.icon(
+                  onPressed: () => Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => const EmergencyHotlinesScreen(),
+                    ),
+                  ),
+                  icon: const Icon(Icons.phone_rounded, size: 18),
+                  label: const Text(
+                    'Hotlines',
+                    style: TextStyle(fontWeight: FontWeight.w600, fontSize: 13),
+                  ),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: _red,
+                    side: const BorderSide(color: _red, width: 1.5),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(14),
+                    ),
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: OutlinedButton.icon(
+                  onPressed: () {}, // rescue status — later
+                  icon: const Icon(Icons.track_changes_rounded, size: 18),
+                  label: const Text(
+                    'Rescue Status',
+                    style: TextStyle(fontWeight: FontWeight.w600, fontSize: 13),
+                  ),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: _orange,
+                    side: const BorderSide(color: _orange, width: 1.5),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(14),
+                    ),
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                  ),
+                ),
+              ),
+            ],
+          ),
         ],
       ),
     );
   }
 
-  // ── Alert Banners ─────────────────────────────────────────────────────────
   Widget _buildAlertBanners() {
     return StreamBuilder<List<AlertModel>>(
       stream: FirestoreService.instance.alertsStream(),
@@ -582,7 +600,6 @@ class _CitizenHomeScreenState extends State<CitizenHomeScreen> {
     );
   }
 
-  // ── Rescue Teams Card ─────────────────────────────────────────────────────
   Widget _buildRescueTeamsCard() {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16),
@@ -590,8 +607,7 @@ class _CitizenHomeScreenState extends State<CitizenHomeScreen> {
         future: _rescuerFuture,
         builder: (context, snapshot) {
           return _cardContainer(
-            child:
-                _locationLoaded &&
+            child: _locationLoaded &&
                     snapshot.connectionState == ConnectionState.done
                 ? _rescuerCardContent(snapshot.data)
                 : _rescuerCardSkeleton(),
@@ -640,7 +656,7 @@ class _CitizenHomeScreenState extends State<CitizenHomeScreen> {
 
     final count = data['count'] as int? ?? 0;
     final name = data['name'] as String? ?? 'Rescue Team';
-    final distKm = (data['distance_km'] as double?)?.toStringAsFixed(1) ?? '—';
+    final distKm = (data['distance_km'] as double?)?.toStringAsFixed(1) ?? '–';
     final eta = data['eta_min'] as int? ?? 0;
 
     return Row(
@@ -683,7 +699,6 @@ class _CitizenHomeScreenState extends State<CitizenHomeScreen> {
     );
   }
 
-  // ── Evac Center Card ──────────────────────────────────────────────────────
   Widget _buildEvacCenterCard() {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16),
@@ -691,8 +706,7 @@ class _CitizenHomeScreenState extends State<CitizenHomeScreen> {
         future: _evacFuture,
         builder: (context, snapshot) {
           return _cardContainer(
-            child:
-                _locationLoaded &&
+            child: _locationLoaded &&
                     snapshot.connectionState == ConnectionState.done
                 ? _evacCardContent(snapshot.data)
                 : _evacCardSkeleton(),
@@ -740,7 +754,7 @@ class _CitizenHomeScreenState extends State<CitizenHomeScreen> {
     }
 
     final name = data['name'] as String? ?? 'Evacuation Center';
-    final distKm = (data['distance_km'] as double?)?.toStringAsFixed(1) ?? '—';
+    final distKm = (data['distance_km'] as double?)?.toStringAsFixed(1) ?? '–';
     final slots = data['available_slots'] as int? ?? 0;
 
     return Row(
@@ -783,7 +797,6 @@ class _CitizenHomeScreenState extends State<CitizenHomeScreen> {
     );
   }
 
-  // ── Community Feed ────────────────────────────────────────────────────────
   Widget _buildCommunityFeed() {
     return StreamBuilder<List<Map<String, dynamic>>>(
       stream: FirestoreService.instance.communityFeedStream(),
@@ -935,7 +948,6 @@ class _CitizenHomeScreenState extends State<CitizenHomeScreen> {
     );
   }
 
-  // ── Shared card helpers ───────────────────────────────────────────────────
   Widget _cardContainer({required Widget child}) {
     return Container(
       width: double.infinity,
@@ -977,8 +989,8 @@ class _CitizenHomeScreenState extends State<CitizenHomeScreen> {
     final color = slots > 20
         ? _green
         : slots > 0
-        ? _orange
-        : _red;
+            ? _orange
+            : _red;
     final label = slots > 0 ? '$slots slots' : 'Full';
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),

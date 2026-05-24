@@ -1,179 +1,123 @@
 import 'package:flutter/material.dart';
-import 'package:timeago/timeago.dart' as timeago;
 
 import '../../models/alert_model.dart';
 import '../../services/firestore_service.dart';
-import '../../theme/app_theme.dart';
 import '../../widgets/app_bottom_nav.dart';
 import '../../widgets/empty_state.dart';
+import '../../widgets/error_banner.dart';
 
 class AlertsScreen extends StatelessWidget {
   const AlertsScreen({super.key});
 
-  Color _severityColor(String severity) {
-    switch (severity.toLowerCase()) {
-      case 'critical':
-        return AppTheme.dangerRed;
-      case 'advisory':
-        return AppTheme.warningOrange;
-      default:
-        return AppTheme.primaryBlue;
-    }
-  }
-
-  IconData _severityIcon(String severity) {
-    switch (severity.toLowerCase()) {
-      case 'critical':
-        return Icons.warning_rounded;
-      case 'advisory':
-        return Icons.info_outline_rounded;
-      default:
-        return Icons.notifications_outlined;
-    }
-  }
+  static const _blue = Color(0xFF0D47A1);
+  static const _red = Color(0xFFD7263D);
+  static const _orange = Color(0xFFFF6B00);
+  static const _bg = Color(0xFFF5F7FA);
+  static const _textSec = Color(0xFF546E7A);
 
   @override
   Widget build(BuildContext context) {
-    final firestoreService = FirestoreService.instance;
-
     return Scaffold(
-      backgroundColor: AppTheme.background,
+      backgroundColor: _bg,
       appBar: AppBar(
-        backgroundColor: AppTheme.primaryBlue,
-        foregroundColor: Colors.white,
+        backgroundColor: Colors.white,
+        elevation: 0.5,
         title: const Text(
           'Alerts',
-          style: TextStyle(fontWeight: FontWeight.bold),
-        ),
-        actions: const [
-          Padding(
-            padding: EdgeInsets.only(right: 16),
-            child: Icon(Icons.notifications_active_outlined),
+          style: TextStyle(
+            color: _blue,
+            fontWeight: FontWeight.w800,
+            fontSize: 18,
           ),
-        ],
-        elevation: 0,
+        ),
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back, color: _blue),
+          onPressed: () => Navigator.pop(context),
+        ),
       ),
       body: StreamBuilder<List<AlertModel>>(
-        stream: firestoreService.alertsStream(),
+        stream: FirestoreService.instance.alertsStream(),
         builder: (context, snapshot) {
           if (snapshot.connectionState == ConnectionState.waiting) {
             return const Center(child: CircularProgressIndicator());
           }
-
           if (snapshot.hasError) {
-            return Center(
-              child: Text(
-                'Error loading alerts: ${snapshot.error}',
-                style: const TextStyle(color: AppTheme.dangerRed),
-              ),
-            );
+            return ErrorBanner(message: snapshot.error.toString());
           }
-
-          final alerts = snapshot.data ?? [];
-
-          if (alerts.isEmpty) {
+          if (!snapshot.hasData || snapshot.data!.isEmpty) {
             return const EmptyState(
               icon: Icons.notifications_off_outlined,
-              title: 'No Alerts',
-              subtitle: 'You\'re all clear. No active alerts at the moment.',
+              title: 'No alerts right now',
+              subtitle: 'You\'re all caught up!',
             );
           }
 
-          return ListView.separated(
-            padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 12),
+          final alerts = snapshot.data!;
+          return ListView.builder(
+            padding: const EdgeInsets.all(16),
             itemCount: alerts.length,
-            separatorBuilder: (_, __) => const SizedBox(height: 8),
             itemBuilder: (context, index) {
               final alert = alerts[index];
-              final color = _severityColor(alert.severity);
-              final timeText = alert.createdAt != null
-                  ? timeago.format(alert.createdAt!)
-                  : '';
+              final isCritical = alert.severity == 'critical';
+              final borderColor = isCritical ? _red : _orange;
+              final iconData = isCritical
+                  ? Icons.warning_rounded
+                  : Icons.info_outline_rounded;
 
               return Container(
+                margin: const EdgeInsets.only(bottom: 12),
+                padding: const EdgeInsets.all(14),
                 decoration: BoxDecoration(
-                  color: color.withValues(alpha: 0.07),
+                  color: Colors.white,
                   borderRadius: BorderRadius.circular(14),
-                  border: Border(left: BorderSide(color: color, width: 4)),
+                  border: Border(
+                    left: BorderSide(color: borderColor, width: 4),
+                  ),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withValues(alpha: 0.05),
+                      blurRadius: 8,
+                      offset: const Offset(0, 2),
+                    ),
+                  ],
                 ),
-                child: ListTile(
-                  contentPadding: const EdgeInsets.symmetric(
-                    horizontal: 14,
-                    vertical: 8,
-                  ),
-                  leading: CircleAvatar(
-                    backgroundColor: color.withValues(alpha: 0.15),
-                    child: Icon(
-                      _severityIcon(alert.severity),
-                      color: color,
-                      size: 22,
-                    ),
-                  ),
-                  title: Text(
-                    alert.message,
-                    style: const TextStyle(
-                      fontWeight: FontWeight.w600,
-                      fontSize: 14,
-                    ),
-                  ),
-                  subtitle: Padding(
-                    padding: const EdgeInsets.only(top: 4),
-                    child: Row(
-                      children: [
-                        Text(
-                          alert.sourceUrl != null
-                              ? 'Source: ${alert.sourceUrl}'
-                              : 'No source',
-                          style: TextStyle(
-                            color: AppTheme.textSecondary,
-                            fontSize: 12,
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Icon(iconData, color: borderColor, size: 22),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            alert.title,
+                            style: TextStyle(
+                              fontWeight: FontWeight.w700,
+                              fontSize: 14,
+                              color: borderColor,
+                            ),
                           ),
-                        ),
-                        const SizedBox(width: 8),
-                        Container(
-                          width: 4,
-                          height: 4,
-                          decoration: BoxDecoration(
-                            color: AppTheme.textSecondary,
-                            shape: BoxShape.circle,
+                          const SizedBox(height: 4),
+                          Text(
+                            alert.message,
+                            style: const TextStyle(
+                              fontSize: 13,
+                              color: _textSec,
+                              height: 1.4,
+                            ),
                           ),
-                        ),
-                        const SizedBox(width: 8),
-                        Text(
-                          timeText,
-                          style: TextStyle(
-                            color: AppTheme.textSecondary,
-                            fontSize: 12,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  trailing: Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 8,
-                      vertical: 4,
-                    ),
-                    decoration: BoxDecoration(
-                      color: color,
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: Text(
-                      alert.severity.toUpperCase(),
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 10,
-                        fontWeight: FontWeight.bold,
+                        ],
                       ),
                     ),
-                  ),
+                  ],
                 ),
               );
             },
           );
         },
       ),
-      bottomNavigationBar: AppBottomNav(currentIndex: 3),
+      bottomNavigationBar: const AppBottomNav(currentIndex: 3),
     );
   }
 }
