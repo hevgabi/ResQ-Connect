@@ -289,7 +289,6 @@ class _RejectedTab extends StatelessWidget {
           .collection('reports')
           .where('status', isEqualTo: 'rejected')
           .where('reviewed_by', isEqualTo: uid)
-          .orderBy('reviewed_at', descending: true)
           .snapshots(),
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
@@ -307,7 +306,17 @@ class _RejectedTab extends StatelessWidget {
           );
         }
 
-        final docs = snapshot.data!.docs;
+        final docs = snapshot.data!.docs.toList()
+          ..sort((a, b) {
+            final aTs =
+                (a.data() as Map<String, dynamic>)['reviewed_at'] as Timestamp?;
+            final bTs =
+                (b.data() as Map<String, dynamic>)['reviewed_at'] as Timestamp?;
+            if (aTs == null && bTs == null) return 0;
+            if (aTs == null) return 1;
+            if (bTs == null) return -1;
+            return bTs.compareTo(aTs);
+          });
         return ListView.separated(
           padding: const EdgeInsets.all(16),
           itemCount: docs.length,

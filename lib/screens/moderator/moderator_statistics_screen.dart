@@ -1,6 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:resq_connect/screens/settings/settings_screen.dart';
 
 import '../../providers/auth_provider.dart';
 import '../../services/firestore_service.dart';
@@ -27,6 +28,16 @@ class ModeratorStatisticsScreen extends StatelessWidget {
         backgroundColor: const Color(0xFF0D47A1),
         elevation: 2,
         automaticallyImplyLeading: false,
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.settings_outlined, color: Colors.white),
+            tooltip: 'Settings',
+            onPressed: () => Navigator.push(
+              context,
+              MaterialPageRoute(builder: (_) => const SettingsScreen()),
+            ),
+          ),
+        ],
       ),
       body: uid.isEmpty
           ? const Center(child: Text('Not logged in'))

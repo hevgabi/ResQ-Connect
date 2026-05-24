@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 import 'package:timeago/timeago.dart' as timeago;
 
@@ -297,7 +298,7 @@ class _ReportQueueCardState extends State<_ReportQueueCard> {
                       ],
                     ),
                     const SizedBox(height: 4),
-                    // Time
+                    // Time — show both relative and absolute timestamp
                     Row(
                       children: [
                         const Icon(
@@ -306,11 +307,28 @@ class _ReportQueueCardState extends State<_ReportQueueCard> {
                           color: Color(0xFF546E7A),
                         ),
                         const SizedBox(width: 4),
-                        Text(
-                          timeText,
-                          style: const TextStyle(
-                            fontSize: 12,
-                            color: Color(0xFF546E7A),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                timeText,
+                                style: const TextStyle(
+                                  fontSize: 12,
+                                  color: Color(0xFF546E7A),
+                                ),
+                              ),
+                              if (createdAt != null)
+                                Text(
+                                  DateFormat(
+                                    'MMM d, yyyy · h:mm a',
+                                  ).format(createdAt!),
+                                  style: const TextStyle(
+                                    fontSize: 10,
+                                    color: Color(0xFF90A4AE),
+                                  ),
+                                ),
+                            ],
                           ),
                         ),
                       ],

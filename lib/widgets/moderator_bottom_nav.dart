@@ -3,6 +3,8 @@ import 'package:flutter/material.dart';
 import '../screens/moderator/moderator_report_queue_screen.dart';
 import '../screens/moderator/moderator_published_feed_screen.dart';
 import '../screens/moderator/moderator_statistics_screen.dart';
+import '../screens/moderator/moderator_rescuer_list_screen.dart';
+import '../screens/moderator/moderator_profile_screen.dart';
 
 class ModeratorBottomNav extends StatelessWidget {
   final int currentIndex;
@@ -16,6 +18,8 @@ class ModeratorBottomNav extends StatelessWidget {
       const ModeratorReportQueueScreen(),
       const ModeratorPublishedFeedScreen(),
       const ModeratorStatisticsScreen(),
+      const ModeratorRescuerListScreen(),
+      const ModeratorProfileScreen(),
     ];
     Navigator.pushAndRemoveUntil(
       context,
@@ -31,15 +35,15 @@ class ModeratorBottomNav extends StatelessWidget {
       onTap: (i) => onTap != null ? onTap!(i) : _defaultOnTap(context, i),
       type: BottomNavigationBarType.fixed,
       backgroundColor: Colors.white,
-      selectedItemColor: const Color(0xFF6A1B9A),
+      selectedItemColor: const Color(0xFF0D47A1),
       unselectedItemColor: const Color(0xFF546E7A),
       selectedLabelStyle: const TextStyle(
         fontWeight: FontWeight.w600,
-        fontSize: 12,
+        fontSize: 11,
       ),
       unselectedLabelStyle: const TextStyle(
         fontWeight: FontWeight.w400,
-        fontSize: 12,
+        fontSize: 11,
       ),
       elevation: 12,
       items: const [
@@ -57,6 +61,16 @@ class ModeratorBottomNav extends StatelessWidget {
           icon: Icon(Icons.bar_chart_outlined),
           activeIcon: Icon(Icons.bar_chart),
           label: 'Statistics',
+        ),
+        BottomNavigationBarItem(
+          icon: Icon(Icons.people_outline),
+          activeIcon: Icon(Icons.people),
+          label: 'Rescuers',
+        ),
+        BottomNavigationBarItem(
+          icon: Icon(Icons.person_outline),
+          activeIcon: Icon(Icons.person),
+          label: 'Profile',
         ),
       ],
     );
