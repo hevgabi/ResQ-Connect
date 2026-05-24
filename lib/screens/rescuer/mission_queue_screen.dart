@@ -28,8 +28,9 @@ class _MissionQueueScreenState extends State<MissionQueueScreen> {
   double? _rescuerLng;
   bool _accepting = false;
 
-  // Listahan ng mga SOS IDs na pansamantalang tinago ng rescuer (Deferred)
-  final Set<String> _deferredMissionIds = {};
+  // Guard flag: while toggling duty, ignore Firestore stream updates
+  // so the switch doesn't flip back immediately after being tapped.
+  bool _togglingDuty = false;
 
   @override
   void initState() {
@@ -45,12 +46,18 @@ class _MissionQueueScreenState extends State<MissionQueueScreen> {
         .doc(uid)
         .snapshots()
         .listen((doc) {
-          if (!mounted || !doc.exists) return;
-          setState(() {
-            _onDuty = doc.data()?['is_on_duty'] ?? false;
-            _activeMissionCount = doc.data()?['active_mission_count'] ?? 0;
-          });
-        });
+      if (!mounted || !doc.exists) return;
+      setState(() {
+        _activeMissionCount = doc.data()?['active_mission_count'] ?? 0;
+        // Only sync duty status when we are NOT in the middle of a local toggle.
+        // Without this guard, the Firestore write confirmation triggers the
+        // listener which immediately overwrites the local switch value, making
+        // the toggle appear to snap back.
+        if (!_togglingDuty) {
+          _onDuty = doc.data()?['is_on_duty'] ?? false;
+        }
+      });
+    });
   }
 
   // FIXED: Dinagdagan ng null check sa 'pos' parameter bago kuhanin ang lat/lng para iwas crash
@@ -66,8 +73,24 @@ class _MissionQueueScreenState extends State<MissionQueueScreen> {
   }
 
   Future<void> _toggleDuty(bool value) async {
-    setState(() => _onDuty = value);
-    await _firestoreService.updateRescuerDuty(uid, value);
+    if (_togglingDuty) return;
+    setState(() {
+      _togglingDuty = true;
+      _onDuty = value;
+    });
+    try {
+      await _firestoreService.updateRescuerDuty(uid, value);
+    } catch (e) {
+      // Revert on error
+      if (mounted) {
+        setState(() => _onDuty = !value);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to update duty status: $e')),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _togglingDuty = false);
+    }
   }
 
   // FIXED: Pinalitan ang SosRequestModel patungong SOSRequestModel
@@ -178,25 +201,23 @@ class _MissionQueueScreenState extends State<MissionQueueScreen> {
     }
   }
 
-  // FIXED: Pinalitan ang SosRequestModel patungong SOSRequestModel
+  // FIXED: Defer now writes to the SOS request's 'deferred_by' array in Firestore
+  // so the deferral persists across restarts and screen rebuilds — not just locally.
   Future<void> _deferMission(SOSRequestModel sos) async {
     try {
-      // Local state update para mawala agad sa listahan ng rescuer na ito
-      setState(() {
-        _deferredMissionIds.add(sos.id);
-      });
-
-      await _firestoreService.createMission({
-        'sos_id': sos.id,
-        'rescuer_id': uid,
-        'status': 'deferred',
-        'deferred_at': FieldValue.serverTimestamp(),
+      // Atomically add this rescuer's uid to the sos_request's 'deferred_by' array.
+      // The openSOSStream will be updated to filter these out server-side.
+      await FirebaseFirestore.instance
+          .collection('sos_requests')
+          .doc(sos.id)
+          .update({
+        'deferred_by': FieldValue.arrayUnion([uid]),
       });
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text('Mission deferred and hidden from queue.'),
+            content: Text('Mission deferred.'),
           ),
         );
       }
@@ -287,47 +308,42 @@ class _MissionQueueScreenState extends State<MissionQueueScreen> {
             child: !_onDuty
                 ? _buildOffDutyState()
                 : StreamBuilder<List<SOSRequestModel>>(
-                    // <--- FIXED: SOSRequestModel name alignment
-                    stream: _firestoreService.openSOSStream(),
-                    builder: (context, snapshot) {
-                      if (snapshot.connectionState == ConnectionState.waiting) {
-                        return const Center(child: CircularProgressIndicator());
-                      }
+              // <--- FIXED: SOSRequestModel name alignment
+              stream: _firestoreService.openSOSStream(excludeRescuerId: uid),
+              builder: (context, snapshot) {
+                if (snapshot.connectionState == ConnectionState.waiting) {
+                  return const Center(child: CircularProgressIndicator());
+                }
 
-                      final rawList = snapshot.data ?? [];
+                final sosList = snapshot.data ?? [];
 
-                      // I-filter out ang mga hiningan ng deferral ng rescuer na ito
-                      final sosList = rawList
-                          .where((sos) => !_deferredMissionIds.contains(sos.id))
-                          .toList();
+                if (sosList.isEmpty) {
+                  return _buildEmptyState();
+                }
 
-                      if (sosList.isEmpty) {
-                        return _buildEmptyState();
-                      }
+                return ListView.separated(
+                  padding: const EdgeInsets.all(12),
+                  itemCount: sosList.length,
+                  separatorBuilder: (_, __) => const SizedBox(height: 10),
+                  itemBuilder: (context, index) {
+                    final sos = sosList[index];
+                    final priorityStr = _priorityLabel(sos);
 
-                      return ListView.separated(
-                        padding: const EdgeInsets.all(12),
-                        itemCount: sosList.length,
-                        separatorBuilder: (_, __) => const SizedBox(height: 10),
-                        itemBuilder: (context, index) {
-                          final sos = sosList[index];
-                          final priorityStr = _priorityLabel(sos);
-
-                          return _MissionCard(
-                            sos: sos,
-                            priority: priorityStr,
-                            priorityColor: _priorityColor(priorityStr),
-                            timeElapsed: _timeElapsed(sos.createdAt),
-                            distanceKm: _distanceKm(sos),
-                            firestoreService: _firestoreService,
-                            onAccept: () => _acceptMission(sos),
-                            onDefer: () => _deferMission(sos),
-                            accepting: _accepting,
-                          );
-                        },
-                      );
-                    },
-                  ),
+                    return _MissionCard(
+                      sos: sos,
+                      priority: priorityStr,
+                      priorityColor: _priorityColor(priorityStr),
+                      timeElapsed: _timeElapsed(sos.createdAt),
+                      distanceKm: _distanceKm(sos),
+                      firestoreService: _firestoreService,
+                      onAccept: () => _acceptMission(sos),
+                      onDefer: () => _deferMission(sos),
+                      accepting: _accepting,
+                    );
+                  },
+                );
+              },
+            ),
           ),
         ],
       ),
@@ -493,7 +509,7 @@ class _MissionCard extends StatelessWidget {
                         Text(
                           citizen != null
                               ? '${citizen.firstName ?? ''} ${citizen.lastName ?? ''}'
-                                    .trim()
+                              .trim()
                               : 'Loading...',
                           style: const TextStyle(
                             fontWeight: FontWeight.bold,
@@ -577,13 +593,13 @@ class _MissionCard extends StatelessWidget {
                             ),
                             child: accepting
                                 ? const SizedBox(
-                                    width: 18,
-                                    height: 18,
-                                    child: CircularProgressIndicator(
-                                      strokeWidth: 2,
-                                      color: Colors.white,
-                                    ),
-                                  )
+                              width: 18,
+                              height: 18,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                color: Colors.white,
+                              ),
+                            )
                                 : const Text('Accept'),
                           ),
                         ),

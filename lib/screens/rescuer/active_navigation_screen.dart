@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:math' as math;
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
@@ -13,6 +14,12 @@ import '../../services/location_service.dart';
 import '../../theme/app_theme.dart';
 
 const String _apiKey = 'AIzaSyCOooBNKqe-MshDk11ADPQQDK7k90W5Sl4';
+
+/// Re-fetch route only when rescuer moves more than this many meters.
+const double _routeRefreshThresholdMeters = 50.0;
+
+/// Minimum seconds between consecutive Directions API calls.
+const int _routeDebounceSeconds = 15;
 
 class ActiveNavigationScreen extends StatefulWidget {
   final String missionId;
@@ -30,10 +37,15 @@ class _ActiveNavigationScreenState extends State<ActiveNavigationScreen> {
   GoogleMapController? _mapController;
 
   MissionModel? _mission;
-  SosRequestModel? _sosRequest;
+  SOSRequestModel? _sosRequest;
 
   LatLng? _rescuerLatLng;
   LatLng? _victimLatLng;
+
+  // Route fetch throttle state
+  LatLng? _lastDirectionsFetchLatLng;
+  DateTime? _lastDirectionsFetchTime;
+  bool _fetchingDirections = false;
 
   final Set<Marker> _markers = {};
   final Set<Polyline> _polylines = {};
@@ -42,10 +54,12 @@ class _ActiveNavigationScreenState extends State<ActiveNavigationScreen> {
   Timer? _locationUpdateTimer;
 
   double? _etaMinutes;
+  double? _distanceKm;
   String _nextInstruction = 'Calculating route...';
   String _nextDistance = '';
 
   bool _arriving = false;
+  bool _routeLoaded = false;
 
   @override
   void initState() {
@@ -55,7 +69,6 @@ class _ActiveNavigationScreenState extends State<ActiveNavigationScreen> {
 
   Future<void> _loadMission() async {
     try {
-      // 1. Direktang pag-fetch ng Mission document gamit ang Firestore instance para iwas method error
       final missionDoc = await FirebaseFirestore.instance
           .collection('missions')
           .doc(widget.missionId)
@@ -65,7 +78,6 @@ class _ActiveNavigationScreenState extends State<ActiveNavigationScreen> {
       final mission = MissionModel.fromFirestore(missionDoc);
       setState(() => _mission = mission);
 
-      // 2. Direktang pag-fetch ng SOS request gamit ang sosId mula sa mission object
       final sosDoc = await FirebaseFirestore.instance
           .collection('sos_requests')
           .doc(mission.sosId)
@@ -76,9 +88,8 @@ class _ActiveNavigationScreenState extends State<ActiveNavigationScreen> {
       setState(() {
         _sosRequest = sos;
         _victimLatLng = LatLng(sos.latitude, sos.longitude);
-        _updateVictimMarker();
       });
-
+      _updateVictimMarker();
       _startLocationTracking();
     } catch (e) {
       if (mounted) {
@@ -90,100 +101,164 @@ class _ActiveNavigationScreenState extends State<ActiveNavigationScreen> {
   }
 
   void _startLocationTracking() {
-    _locationSubscription = _locationService.getPositionStream().listen((
-      pos,
-    ) async {
-      if (!mounted) return;
-      setState(() {
-        _rescuerLatLng = LatLng(pos.latitude, pos.longitude);
-        _updateRescuerMarker();
-        _recalculateEta();
-      });
-    });
+    _locationSubscription =
+        _locationService.getPositionStream().listen((pos) {
+          if (!mounted) return;
+          final newLatLng = LatLng(pos.latitude, pos.longitude);
+          setState(() => _rescuerLatLng = newLatLng);
+          _updateRescuerMarker(newLatLng);
+          _recalculateEtaFallback(newLatLng);
+          // Only call Directions API when the rescuer has moved enough
+          _maybeRefreshRoute(newLatLng);
+        });
 
-    // Update Firestore every 5 seconds
-    _locationUpdateTimer = Timer.periodic(const Duration(seconds: 5), (
-      _,
-    ) async {
-      if (_rescuerLatLng == null) return;
-      await _firestoreService.updateRescuerLocation(
-        uid,
-        _rescuerLatLng!.latitude,
-        _rescuerLatLng!.longitude,
-      );
-    });
-
-    // Initial directions fetch after getting first location
-    Future.delayed(const Duration(seconds: 2), () {
-      if (_rescuerLatLng != null && _victimLatLng != null) {
-        _fetchDirections();
-      }
-    });
+    // Write location to Firestore every 5 s — totally decoupled from route logic
+    _locationUpdateTimer =
+        Timer.periodic(const Duration(seconds: 5), (_) async {
+          if (_rescuerLatLng == null) return;
+          await _firestoreService.updateRescuerLocation(
+            uid,
+            _rescuerLatLng!.latitude,
+            _rescuerLatLng!.longitude,
+          );
+        });
   }
 
-  Future<void> _fetchDirections() async {
-    if (_rescuerLatLng == null || _victimLatLng == null) return;
-    try {
-      final url =
-          'https://maps.googleapis.com/maps/api/directions/json'
-          '?origin=${_rescuerLatLng!.latitude},${_rescuerLatLng!.longitude}'
-          '&destination=${_victimLatLng!.latitude},${_victimLatLng!.longitude}'
-          '&mode=driving'
-          '&key=$_apiKey';
+  /// Throttled route refresh: only calls the API when:
+  ///   1. No route has been drawn yet, OR
+  ///   2. Rescuer moved >= threshold AND cooldown has elapsed.
+  void _maybeRefreshRoute(LatLng current) {
+    if (_fetchingDirections || _victimLatLng == null) return;
 
-      final response = await http.get(Uri.parse(url));
-      if (response.statusCode != 200) return;
+    final bool noRoute = !_routeLoaded;
+    final bool movedEnough = _lastDirectionsFetchLatLng == null ||
+        _haversineMeters(_lastDirectionsFetchLatLng!, current) >=
+            _routeRefreshThresholdMeters;
+    final bool cooledDown = _lastDirectionsFetchTime == null ||
+        DateTime.now()
+            .difference(_lastDirectionsFetchTime!)
+            .inSeconds >=
+            _routeDebounceSeconds;
 
-      final json = jsonDecode(response.body);
-      final routes = json['routes'] as List?;
-      if (routes == null || routes.isEmpty) return;
-
-      final route = routes[0];
-      final encoded = route['overview_polyline']['points'] as String;
-
-      // Decode polyline
-      final List<LatLng> points = _decodePolyline(encoded);
-
-      // Get first step instruction
-      final steps = route['legs']?[0]?['steps'] as List? ?? [];
-      if (steps.isNotEmpty) {
-        final step = steps[0];
-        final rawHtml = step['html_instructions'] as String? ?? '';
-        final instruction = rawHtml.replaceAll(RegExp(r'<[^>]*>'), '');
-        final dist = step['distance']?['text'] ?? '';
-        if (mounted) {
-          setState(() {
-            _nextInstruction = instruction;
-            _nextDistance = dist;
-          });
-        }
-      }
-
-      if (!mounted) return;
-      setState(() {
-        _polylines.clear();
-        _polylines.add(
-          Polyline(
-            polylineId: const PolylineId('route'),
-            points: points,
-            color: AppTheme.primaryBlue,
-            width: 5,
-          ),
-        );
-      });
-
-      _mapController?.animateCamera(CameraUpdate.newLatLng(_rescuerLatLng!));
-    } catch (e) {
-      debugPrint('Directions error: $e');
+    if (noRoute || (movedEnough && cooledDown)) {
+      _fetchDirections(current);
     }
   }
 
+  /// Haversine distance between two LatLng points, in metres.
+  double _haversineMeters(LatLng a, LatLng b) {
+    const double r = 6371000;
+    final double dLat = _rad(b.latitude - a.latitude);
+    final double dLng = _rad(b.longitude - a.longitude);
+    final double h = math.pow(math.sin(dLat / 2), 2) +
+        math.cos(_rad(a.latitude)) *
+            math.cos(_rad(b.latitude)) *
+            math.pow(math.sin(dLng / 2), 2);
+    return 2 * r * math.asin(math.sqrt(h));
+  }
+
+  double _rad(double deg) => deg * math.pi / 180;
+
+  /// Fetch the fastest driving route via Google Directions API.
+  /// Requests real-time traffic data for accurate ETA.
+  Future<void> _fetchDirections(LatLng origin) async {
+    _fetchingDirections = true;
+    _lastDirectionsFetchLatLng = origin;
+    _lastDirectionsFetchTime = DateTime.now();
+
+    try {
+      final uri = Uri.parse(
+        'https://maps.googleapis.com/maps/api/directions/json'
+            '?origin=${origin.latitude},${origin.longitude}'
+            '&destination=${_victimLatLng!.latitude},${_victimLatLng!.longitude}'
+            '&mode=driving'
+            '&alternatives=false'
+            '&traffic_model=best_guess'
+            '&departure_time=now'
+            '&key=$_apiKey',
+      );
+
+      final response =
+      await http.get(uri).timeout(const Duration(seconds: 10));
+      if (response.statusCode != 200) return;
+
+      final json = jsonDecode(response.body) as Map<String, dynamic>;
+      if (json['status'] != 'OK') {
+        debugPrint('Directions API: ${json['status']}');
+        return;
+      }
+
+      final routes = json['routes'] as List?;
+      if (routes == null || routes.isEmpty) return;
+
+      final route = routes[0] as Map<String, dynamic>;
+      final leg = (route['legs'] as List)[0] as Map<String, dynamic>;
+
+      // Prefer traffic-aware duration when available
+      final durField = leg['duration_in_traffic'] ?? leg['duration'];
+      final etaSecs = (durField?['value'] as int?) ?? 0;
+      final distMeters = (leg['distance']?['value'] as int?) ?? 0;
+
+      final encoded = route['overview_polyline']['points'] as String;
+      final List<LatLng> points = _decodePolyline(encoded);
+
+      // First step instruction
+      final steps = leg['steps'] as List? ?? [];
+      String instruction = 'Head toward victim';
+      String dist = '';
+      if (steps.isNotEmpty) {
+        final step = steps[0] as Map<String, dynamic>;
+        final rawHtml = step['html_instructions'] as String? ?? '';
+        instruction = rawHtml.replaceAll(RegExp(r'<[^>]*>'), '');
+        dist = step['distance']?['text'] ?? '';
+      }
+
+      if (!mounted) return;
+      setState(() {
+        _etaMinutes = etaSecs / 60.0;
+        _distanceKm = distMeters / 1000.0;
+        _nextInstruction = instruction;
+        _nextDistance = dist;
+        _routeLoaded = true;
+
+        _polylines
+          ..clear()
+          ..add(
+            Polyline(
+              polylineId: const PolylineId('rescue_route'),
+              points: points,
+              color: AppTheme.primaryBlue,
+              width: 6,
+              startCap: Cap.roundCap,
+              endCap: Cap.roundCap,
+              jointType: JointType.round,
+              geodesic: true,
+            ),
+          );
+      });
+
+      // Fit camera to show rescuer + victim + full route
+      if (_mapController != null && points.isNotEmpty) {
+        _mapController!.animateCamera(
+          CameraUpdate.newLatLngBounds(
+            _latLngBounds([origin, _victimLatLng!, ...points]),
+            80,
+          ),
+        );
+      }
+    } catch (e) {
+      debugPrint('Directions fetch error: $e');
+    } finally {
+      _fetchingDirections = false;
+    }
+  }
+
+  /// Google Encoded Polyline Algorithm decoder.
   List<LatLng> _decodePolyline(String encoded) {
     final List<LatLng> poly = [];
     int index = 0;
     final int len = encoded.length;
     int lat = 0, lng = 0;
-
     while (index < len) {
       int b, shift = 0, result = 0;
       do {
@@ -191,9 +266,7 @@ class _ActiveNavigationScreenState extends State<ActiveNavigationScreen> {
         result |= (b & 0x1f) << shift;
         shift += 5;
       } while (b >= 0x20);
-      final int dlat = ((result & 1) != 0 ? ~(result >> 1) : (result >> 1));
-      lat += dlat;
-
+      lat += ((result & 1) != 0 ? ~(result >> 1) : (result >> 1));
       shift = 0;
       result = 0;
       do {
@@ -201,76 +274,108 @@ class _ActiveNavigationScreenState extends State<ActiveNavigationScreen> {
         result |= (b & 0x1f) << shift;
         shift += 5;
       } while (b >= 0x20);
-      final int dlng = ((result & 1) != 0 ? ~(result >> 1) : (result >> 1));
-      lng += dlng;
-
+      lng += ((result & 1) != 0 ? ~(result >> 1) : (result >> 1));
       poly.add(LatLng(lat / 1e5, lng / 1e5));
     }
     return poly;
   }
 
-  void _updateRescuerMarker() {
-    if (_rescuerLatLng == null) return;
-    _markers.removeWhere((m) => m.markerId.value == 'rescuer');
-    _markers.add(
-      Marker(
-        markerId: const MarkerId('rescuer'),
-        position: _rescuerLatLng!,
-        icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueBlue),
-        infoWindow: const InfoWindow(title: 'You (R)'),
-        zIndex: 2,
-      ),
+  LatLngBounds _latLngBounds(List<LatLng> points) {
+    double minLat = points.first.latitude;
+    double maxLat = points.first.latitude;
+    double minLng = points.first.longitude;
+    double maxLng = points.first.longitude;
+    for (final p in points) {
+      if (p.latitude < minLat) minLat = p.latitude;
+      if (p.latitude > maxLat) maxLat = p.latitude;
+      if (p.longitude < minLng) minLng = p.longitude;
+      if (p.longitude > maxLng) maxLng = p.longitude;
+    }
+    return LatLngBounds(
+      southwest: LatLng(minLat, minLng),
+      northeast: LatLng(maxLat, maxLng),
     );
-    _fetchDirections();
+  }
+
+  void _updateRescuerMarker(LatLng pos) {
+    setState(() {
+      _markers.removeWhere((m) => m.markerId.value == 'rescuer');
+      _markers.add(
+        Marker(
+          markerId: const MarkerId('rescuer'),
+          position: pos,
+          icon: BitmapDescriptor.defaultMarkerWithHue(
+              BitmapDescriptor.hueAzure),
+          infoWindow: const InfoWindow(
+            title: '🚑 You (Rescuer)',
+            snippet: 'Your current location',
+          ),
+          zIndex: 2,
+        ),
+      );
+    });
   }
 
   void _updateVictimMarker() {
     if (_victimLatLng == null) return;
-    _markers.removeWhere((m) => m.markerId.value == 'victim');
-    _markers.add(
-      Marker(
-        markerId: const MarkerId('victim'),
-        position: _victimLatLng!,
-        icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueRed),
-        infoWindow: const InfoWindow(title: 'Victim (V)'),
-      ),
-    );
+    final sos = _sosRequest;
+    setState(() {
+      _markers.removeWhere((m) => m.markerId.value == 'victim');
+      _markers.add(
+        Marker(
+          markerId: const MarkerId('victim'),
+          position: _victimLatLng!,
+          icon: BitmapDescriptor.defaultMarkerWithHue(
+              BitmapDescriptor.hueRed),
+          infoWindow: InfoWindow(
+            title: '🆘 ${sos?.citizenName ?? 'Victim'}',
+            snippet: sos?.description ?? 'Emergency location',
+          ),
+          zIndex: 1,
+        ),
+      );
+    });
   }
 
-  void _recalculateEta() {
-    if (_rescuerLatLng == null || _victimLatLng == null) return;
+  /// Straight-line ETA fallback — shown while the first API call is in flight.
+  void _recalculateEtaFallback(LatLng from) {
+    if (_routeLoaded || _victimLatLng == null) return;
     final distKm = _locationService.calculateDistance(
-      _rescuerLatLng!.latitude,
-      _rescuerLatLng!.longitude,
+      from.latitude,
+      from.longitude,
       _victimLatLng!.latitude,
       _victimLatLng!.longitude,
     );
-    setState(() => _etaMinutes = (distKm / 40) * 60);
+    setState(() {
+      _etaMinutes = (distKm / 40) * 60;
+      _distanceKm = distKm;
+    });
   }
 
   Future<bool> _confirmLeave() async {
     return await showDialog<bool>(
-          context: context,
-          builder: (ctx) => AlertDialog(
-            title: const Text('Leave Navigation?'),
-            content: const Text(
-              'Are you sure you want to leave active navigation? The mission will remain active.',
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(ctx, false),
-                child: const Text('Cancel'),
-              ),
-              TextButton(
-                onPressed: () => Navigator.pop(ctx, true),
-                child: const Text(
-                  'Leave',
-                  style: TextStyle(color: AppTheme.dangerRed),
-                ),
-              ),
-            ],
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Leave Navigation?'),
+        content: const Text(
+          'Are you sure you want to leave active navigation? '
+              'The mission will remain active.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel'),
           ),
-        ) ??
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text(
+              'Leave',
+              style: TextStyle(color: AppTheme.dangerRed),
+            ),
+          ),
+        ],
+      ),
+    ) ??
         false;
   }
 
@@ -278,7 +383,15 @@ class _ActiveNavigationScreenState extends State<ActiveNavigationScreen> {
     if (_arriving) return;
     setState(() => _arriving = true);
     try {
-      // Sinisigurong tumutugma sa mga collections na hawak ng FirestoreService mo
+      final firestore = FirebaseFirestore.instance;
+      final rescuerRef = firestore.collection('rescuers').doc(uid);
+
+      // Read current count first to avoid going below 0
+      final rescuerDoc = await rescuerRef.get();
+      final currentCount =
+          (rescuerDoc.data()?['active_mission_count'] as int?) ?? 0;
+      final newCount = currentCount > 0 ? currentCount - 1 : 0;
+
       await Future.wait([
         _firestoreService.updateMission(widget.missionId, {
           'status': 'arrived',
@@ -288,8 +401,8 @@ class _ActiveNavigationScreenState extends State<ActiveNavigationScreen> {
           'status': 'resolved',
           'resolved_at': FieldValue.serverTimestamp(),
         }),
-        FirebaseFirestore.instance.collection('rescuers').doc(uid).update({
-          'active_mission_count': FieldValue.increment(-1),
+        rescuerRef.update({
+          'active_mission_count': newCount,
         }),
       ]);
       if (!mounted) return;
@@ -318,126 +431,131 @@ class _ActiveNavigationScreenState extends State<ActiveNavigationScreen> {
   @override
   Widget build(BuildContext context) {
     final sos = _sosRequest;
+    final initialTarget =
+        _rescuerLatLng ?? _victimLatLng ?? const LatLng(14.5995, 120.9842);
 
     return WillPopScope(
       onWillPop: _confirmLeave,
       child: Scaffold(
         body: Stack(
           children: [
-            // Full-screen map
+            // ── Full-screen map ────────────────────────────────────────────
             GoogleMap(
-              initialCameraPosition: CameraPosition(
-                target:
-                    _rescuerLatLng ??
-                    _victimLatLng ??
-                    const LatLng(14.5995, 120.9842),
-                zoom: 14,
-              ),
+              initialCameraPosition:
+              CameraPosition(target: initialTarget, zoom: 15),
               markers: _markers,
               polylines: _polylines,
-              onMapCreated: (c) => _mapController = c,
+              onMapCreated: (c) {
+                _mapController = c;
+                if (_rescuerLatLng != null && _victimLatLng != null) {
+                  c.animateCamera(CameraUpdate.newLatLngBounds(
+                    _latLngBounds([_rescuerLatLng!, _victimLatLng!]),
+                    80,
+                  ));
+                }
+              },
+              myLocationEnabled: false,
               myLocationButtonEnabled: false,
+              trafficEnabled: true,
+              zoomControlsEnabled: true,
             ),
 
-            // Direction banner (top)
+            // ── Turn-by-turn banner ────────────────────────────────────────
             Positioned(
               top: 0,
               left: 0,
               right: 0,
               child: SafeArea(
-                child: Column(
-                  children: [
-                    Container(
-                      margin: const EdgeInsets.all(12),
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 16,
-                        vertical: 14,
+                child: Container(
+                  margin: const EdgeInsets.all(12),
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: 16, vertical: 14),
+                  decoration: BoxDecoration(
+                    color: AppTheme.primaryBlue,
+                    borderRadius: BorderRadius.circular(16),
+                    boxShadow: const [
+                      BoxShadow(
+                        color: Colors.black26,
+                        blurRadius: 8,
+                        offset: Offset(0, 4),
                       ),
-                      decoration: BoxDecoration(
-                        color: AppTheme.primaryBlue,
-                        borderRadius: BorderRadius.circular(16),
-                        boxShadow: const [
-                          BoxShadow(
-                            color: Colors.black26,
-                            blurRadius: 8,
-                            offset: Offset(0, 4),
-                          ),
-                        ],
-                      ),
-                      child: Row(
-                        children: [
-                          const Icon(
-                            Icons.navigation_outlined,
-                            color: Colors.white,
-                            size: 24,
-                          ),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  _nextInstruction,
-                                  style: const TextStyle(
-                                    color: Colors.white,
-                                    fontWeight: FontWeight.bold,
-                                    fontSize: 14,
-                                  ),
-                                  maxLines: 2,
-                                  overflow: TextOverflow.ellipsis,
+                    ],
+                  ),
+                  child: Row(
+                    children: [
+                      const Icon(Icons.navigation_outlined,
+                          color: Colors.white, size: 24),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              _nextInstruction,
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontWeight: FontWeight.bold,
+                                fontSize: 14,
+                              ),
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                            if (_nextDistance.isNotEmpty)
+                              Text(
+                                'In $_nextDistance',
+                                style: const TextStyle(
+                                  color: Colors.white70,
+                                  fontSize: 12,
                                 ),
-                                if (_nextDistance.isNotEmpty)
-                                  Text(
-                                    'In $_nextDistance',
-                                    style: const TextStyle(
-                                      color: Colors.white70,
-                                      fontSize: 12,
-                                    ),
-                                  ),
-                              ],
-                            ),
-                          ),
-
-                          // ETA badge
-                          if (_etaMinutes != null)
-                            Container(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 10,
-                                vertical: 6,
                               ),
-                              decoration: BoxDecoration(
-                                color: AppTheme.successGreen,
-                                borderRadius: BorderRadius.circular(10),
-                              ),
-                              child: Column(
-                                children: [
-                                  Text(
-                                    _etaMinutes!.toStringAsFixed(0),
-                                    style: const TextStyle(
-                                      color: Colors.white,
-                                      fontWeight: FontWeight.bold,
-                                      fontSize: 18,
-                                    ),
-                                  ),
-                                  const Text(
-                                    'min',
-                                    style: TextStyle(
-                                      color: Colors.white70,
-                                      fontSize: 10,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                        ],
+                          ],
+                        ),
                       ),
-                    ),
-                  ],
+                      if (_etaMinutes != null)
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 10, vertical: 6),
+                          decoration: BoxDecoration(
+                            color: AppTheme.successGreen,
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Text(
+                                _etaMinutes!.toStringAsFixed(0),
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 18,
+                                ),
+                              ),
+                              const Text('min',
+                                  style: TextStyle(
+                                      color: Colors.white70, fontSize: 10)),
+                              if (_distanceKm != null)
+                                Text(
+                                  '${_distanceKm!.toStringAsFixed(1)} km',
+                                  style: const TextStyle(
+                                      color: Colors.white60, fontSize: 9),
+                                ),
+                            ],
+                          ),
+                        )
+                      else
+                        const SizedBox(
+                          width: 20,
+                          height: 20,
+                          child: CircularProgressIndicator(
+                              strokeWidth: 2, color: Colors.white),
+                        ),
+                    ],
+                  ),
                 ),
               ),
             ),
 
-            // Bottom victim info panel
+            // ── Bottom victim info panel ───────────────────────────────────
             Positioned(
               bottom: 0,
               left: 0,
@@ -446,7 +564,8 @@ class _ActiveNavigationScreenState extends State<ActiveNavigationScreen> {
                 padding: const EdgeInsets.all(20),
                 decoration: const BoxDecoration(
                   color: Colors.white,
-                  borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+                  borderRadius:
+                  BorderRadius.vertical(top: Radius.circular(20)),
                   boxShadow: [
                     BoxShadow(
                       color: Colors.black26,
@@ -461,33 +580,52 @@ class _ActiveNavigationScreenState extends State<ActiveNavigationScreen> {
                   children: [
                     Row(
                       children: [
-                        const Icon(
-                          Icons.person_pin_outlined,
-                          color: AppTheme.dangerRed,
-                        ),
+                        const Icon(Icons.person_pin_outlined,
+                            color: AppTheme.dangerRed),
                         const SizedBox(width: 8),
-                        Text(
-                          sos?.citizenName ?? 'Victim',
-                          style: const TextStyle(
-                            fontWeight: FontWeight.bold,
-                            fontSize: 16,
+                        Expanded(
+                          child: Text(
+                            sos?.citizenName ?? 'Victim',
+                            style: const TextStyle(
+                              fontWeight: FontWeight.bold,
+                              fontSize: 16,
+                            ),
                           ),
                         ),
-                        const Spacer(),
+                        // Re-center button
+                        IconButton(
+                          icon: const Icon(Icons.fit_screen,
+                              color: AppTheme.primaryBlue),
+                          tooltip: 'Fit route on screen',
+                          onPressed: () {
+                            if (_rescuerLatLng != null &&
+                                _victimLatLng != null) {
+                              _mapController?.animateCamera(
+                                CameraUpdate.newLatLngBounds(
+                                  _latLngBounds(
+                                      [_rescuerLatLng!, _victimLatLng!]),
+                                  80,
+                                ),
+                              );
+                            }
+                          },
+                        ),
                       ],
                     ),
-                    if (sos?.description != null) ...[
-                      const SizedBox(height: 8),
-                      Text(
-                        sos!.description!,
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                          color: AppTheme.textSecondary,
-                          fontSize: 13,
+                    if (sos?.description != null &&
+                        sos!.description!.isNotEmpty)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 6),
+                        child: Text(
+                          sos.description!,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            color: AppTheme.textSecondary,
+                            fontSize: 13,
+                          ),
                         ),
                       ),
-                    ],
                     const SizedBox(height: 16),
                     SizedBox(
                       width: double.infinity,
@@ -495,21 +633,18 @@ class _ActiveNavigationScreenState extends State<ActiveNavigationScreen> {
                         onPressed: _arriving ? null : _markArrived,
                         icon: _arriving
                             ? const SizedBox(
-                                width: 18,
-                                height: 18,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2,
-                                  color: Colors.white,
-                                ),
-                              )
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(
+                              strokeWidth: 2, color: Colors.white),
+                        )
                             : const Icon(Icons.check_circle_outline),
-                        label: const Text(
-                          'Arrived',
-                          style: TextStyle(fontSize: 16),
-                        ),
+                        label: const Text('Arrived',
+                            style: TextStyle(fontSize: 16)),
                         style: FilledButton.styleFrom(
                           backgroundColor: AppTheme.successGreen,
-                          padding: const EdgeInsets.symmetric(vertical: 14),
+                          padding:
+                          const EdgeInsets.symmetric(vertical: 14),
                           shape: RoundedRectangleBorder(
                             borderRadius: BorderRadius.circular(12),
                           ),

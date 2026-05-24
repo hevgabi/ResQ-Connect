@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
@@ -25,12 +26,17 @@ class _RescuerProfileScreenState extends State<RescuerProfileScreen> {
   bool _onDuty = false;
   bool _editingPersonal = false;
   bool _loading = false;
+  bool _togglingDuty = false;
+
+  // Real-time stream subscriptions — keeps duty status always in sync with Firestore
+  StreamSubscription? _rescuerStreamSub;
+  StreamSubscription? _userStreamSub;
 
   late TextEditingController _firstNameController;
   late TextEditingController _lastNameController;
   late TextEditingController _phoneController;
 
-  static const int _teamCapacityMax = 5; // default max, can come from Firestore
+  static const int _teamCapacityMax = 5;
 
   @override
   void initState() {
@@ -38,49 +44,69 @@ class _RescuerProfileScreenState extends State<RescuerProfileScreen> {
     _firstNameController = TextEditingController();
     _lastNameController = TextEditingController();
     _phoneController = TextEditingController();
-    _loadData();
+    _subscribeToStreams();
   }
 
-  Future<void> _loadData() async {
-    setState(() => _loading = true);
-    try {
-      final userSnap = await FirebaseFirestore.instance
-          .collection('users')
-          .doc(uid)
-          .get();
-      final rescuerSnap = await FirebaseFirestore.instance
-          .collection('rescuers')
-          .doc(uid)
-          .get();
+  /// Subscribe to real-time Firestore snapshots instead of one-shot fetches.
+  /// This ensures the On/Off Duty switch always reflects the true Firestore value
+  /// and cannot be overridden by stale one-time reads on navigation.
+  void _subscribeToStreams() {
+    _rescuerStreamSub = FirebaseFirestore.instance
+        .collection('rescuers')
+        .doc(uid)
+        .snapshots()
+        .listen((doc) {
+      if (!mounted || !doc.exists) return;
+      final rData = doc.data();
+      setState(() {
+        _rescuerData = rData;
+        // Only update _onDuty if we are not in the middle of a local toggle
+        // to avoid flicker. Once Firestore confirms, _togglingDuty is cleared.
+        if (!_togglingDuty) {
+          _onDuty = rData?['is_on_duty'] ?? false;
+        }
+      });
+    });
 
-      if (!mounted) return;
-      final uData = userSnap.data();
-      final rData = rescuerSnap.data();
-
+    _userStreamSub = FirebaseFirestore.instance
+        .collection('users')
+        .doc(uid)
+        .snapshots()
+        .listen((doc) {
+      if (!mounted || !doc.exists) return;
+      final uData = doc.data();
       setState(() {
         _userData = uData;
-        _rescuerData = rData;
-        _onDuty = rData?['is_on_duty'] ?? false;
         if (!_editingPersonal) {
           _firstNameController.text = uData?['first_name'] ?? '';
           _lastNameController.text = uData?['last_name'] ?? '';
           _phoneController.text = uData?['phone'] ?? '';
         }
       });
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('Error loading profile: $e')));
-      }
-    } finally {
-      if (mounted) setState(() => _loading = false);
-    }
+    });
   }
 
+  /// Toggle duty status: update local state immediately for instant UI feedback,
+  /// then persist to Firestore. The stream listener will confirm the final value.
   Future<void> _toggleDuty(bool value) async {
-    setState(() => _onDuty = value);
-    await _firestoreService.updateRescuerDuty(uid, value);
+    if (_togglingDuty) return; // prevent double-tap
+    setState(() {
+      _togglingDuty = true;
+      _onDuty = value;
+    });
+    try {
+      await _firestoreService.updateRescuerDuty(uid, value);
+    } catch (e) {
+      // Revert on error
+      if (mounted) {
+        setState(() => _onDuty = !value);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to update duty status: $e')),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _togglingDuty = false);
+    }
   }
 
   Future<void> _savePersonalInfo() async {
@@ -112,12 +138,14 @@ class _RescuerProfileScreenState extends State<RescuerProfileScreen> {
     final first = _userData?['first_name'] ?? '';
     final last = _userData?['last_name'] ?? '';
     return ((first.isNotEmpty ? first[0] : '') +
-            (last.isNotEmpty ? last[0] : ''))
+        (last.isNotEmpty ? last[0] : ''))
         .toUpperCase();
   }
 
   @override
   void dispose() {
+    _rescuerStreamSub?.cancel();
+    _userStreamSub?.cancel();
     _firstNameController.dispose();
     _lastNameController.dispose();
     _phoneController.dispose();
@@ -128,7 +156,7 @@ class _RescuerProfileScreenState extends State<RescuerProfileScreen> {
   Widget build(BuildContext context) {
     final activeMissions = (_rescuerData?['active_mission_count'] ?? 0) as int;
     final teamCapacity =
-        (_rescuerData?['team_capacity_max'] ?? _teamCapacityMax) as int;
+    (_rescuerData?['team_capacity_max'] ?? _teamCapacityMax) as int;
     final capacityRatio = teamCapacity > 0
         ? activeMissions / teamCapacity
         : 0.0;
@@ -196,10 +224,10 @@ class _RescuerProfileScreenState extends State<RescuerProfileScreen> {
                       const SizedBox(height: 12),
                       Text(
                         '${_userData?['first_name'] ?? ''} ${_userData?['last_name'] ?? ''}'
-                                .trim()
-                                .isNotEmpty
+                            .trim()
+                            .isNotEmpty
                             ? '${_userData?['first_name'] ?? ''} ${_userData?['last_name'] ?? ''}'
-                                  .trim()
+                            .trim()
                             : 'Rescuer',
                         style: const TextStyle(
                           fontSize: 20,
@@ -236,14 +264,26 @@ class _RescuerProfileScreenState extends State<RescuerProfileScreen> {
                   borderRadius: BorderRadius.circular(14),
                 ),
                 child: SwitchListTile(
-                  title: Text(
-                    _onDuty ? 'On Duty' : 'Off Duty',
-                    style: TextStyle(
-                      fontWeight: FontWeight.bold,
-                      color: _onDuty
-                          ? AppTheme.successGreen
-                          : AppTheme.textSecondary,
-                    ),
+                  title: Row(
+                    children: [
+                      Text(
+                        _onDuty ? 'On Duty' : 'Off Duty',
+                        style: TextStyle(
+                          fontWeight: FontWeight.bold,
+                          color: _onDuty
+                              ? AppTheme.successGreen
+                              : AppTheme.textSecondary,
+                        ),
+                      ),
+                      if (_togglingDuty) ...[
+                        const SizedBox(width: 8),
+                        const SizedBox(
+                          width: 14,
+                          height: 14,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        ),
+                      ],
+                    ],
                   ),
                   subtitle: Text(
                     _onDuty
@@ -253,7 +293,7 @@ class _RescuerProfileScreenState extends State<RescuerProfileScreen> {
                   ),
                   value: _onDuty,
                   activeThumbColor: AppTheme.successGreen,
-                  onChanged: _toggleDuty,
+                  onChanged: _togglingDuty ? null : _toggleDuty,
                 ),
               ),
 
@@ -437,11 +477,11 @@ class _RescuerProfileScreenState extends State<RescuerProfileScreen> {
   }
 
   Widget _editableField(
-    String label,
-    TextEditingController controller,
-    bool editing, {
-    TextInputType? keyboardType,
-  }) {
+      String label,
+      TextEditingController controller,
+      bool editing, {
+        TextInputType? keyboardType,
+      }) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -452,22 +492,22 @@ class _RescuerProfileScreenState extends State<RescuerProfileScreen> {
         const SizedBox(height: 4),
         editing
             ? TextField(
-                controller: controller,
-                keyboardType: keyboardType,
-                decoration: InputDecoration(
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(10),
-                  ),
-                  contentPadding: const EdgeInsets.symmetric(
-                    horizontal: 12,
-                    vertical: 10,
-                  ),
-                ),
-              )
+          controller: controller,
+          keyboardType: keyboardType,
+          decoration: InputDecoration(
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(10),
+            ),
+            contentPadding: const EdgeInsets.symmetric(
+              horizontal: 12,
+              vertical: 10,
+            ),
+          ),
+        )
             : Text(
-                controller.text.isNotEmpty ? controller.text : 'Not set',
-                style: const TextStyle(fontSize: 15),
-              ),
+          controller.text.isNotEmpty ? controller.text : 'Not set',
+          style: const TextStyle(fontSize: 15),
+        ),
       ],
     );
   }
