@@ -3,9 +3,12 @@ import 'package:provider/provider.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 
+import 'package:cloud_firestore/cloud_firestore.dart';
+
 import '../../providers/auth_provider.dart';
 import '../../main.dart' show RootRouter;
 import 'forgot_password_screen.dart';
+import 'google_complete_profile_screen.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -145,7 +148,6 @@ class _LoginScreenState extends State<LoginScreen>
     try {
       final googleUser = await GoogleSignIn().signIn();
       if (googleUser == null) {
-        // User cancelled
         setState(() => _isGoogleLoading = false);
         return;
       }
@@ -154,11 +156,36 @@ class _LoginScreenState extends State<LoginScreen>
         accessToken: googleAuth.accessToken,
         idToken: googleAuth.idToken,
       );
-      await FirebaseAuth.instance.signInWithCredential(credential);
-      // Replace the entire stack with RootRouter (same reason as email login).
-      if (mounted) {
+      final result = await FirebaseAuth.instance.signInWithCredential(
+        credential,
+      );
+      final firebaseUser = result.user;
+      if (firebaseUser == null) {
+        _showSnackBar('Google sign-in failed. Please try again.');
+        return;
+      }
+
+      // Check if this Google user already has a Firestore doc (existing user)
+      final doc = await FirebaseFirestore.instance
+          .collection('users')
+          .doc(firebaseUser.uid)
+          .get();
+
+      if (!mounted) return;
+
+      if (doc.exists) {
+        // Existing user — let RootRouter handle routing (pending / approved / etc.)
         Navigator.of(context).pushAndRemoveUntil(
           MaterialPageRoute(builder: (_) => const RootRouter()),
+          (route) => false,
+        );
+      } else {
+        // New Google user — complete profile first
+        Navigator.of(context).pushAndRemoveUntil(
+          MaterialPageRoute(
+            builder: (_) =>
+                GoogleCompleteProfileScreen(googleUser: firebaseUser),
+          ),
           (route) => false,
         );
       }
