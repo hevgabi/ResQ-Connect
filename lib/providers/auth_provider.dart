@@ -12,6 +12,7 @@ class AuthProvider extends ChangeNotifier {
   String? _role;
   bool _isLoading = true;
   bool _isAccountDisabled = false;
+  bool _isPending = false;
 
   StreamSubscription<User?>? _authSubscription;
 
@@ -23,6 +24,7 @@ class AuthProvider extends ChangeNotifier {
   String? get role => _role;
   bool get isLoading => _isLoading;
   bool get isAccountDisabled => _isAccountDisabled;
+  bool get isPending => _isPending;
 
   // ── Constructor ───────────────────────────────────────────────────────────
   AuthProvider() {
@@ -40,6 +42,7 @@ class AuthProvider extends ChangeNotifier {
       _role = null;
       _isLoading = false;
       _isAccountDisabled = false;
+      _isPending = false;
       notifyListeners();
       return;
     }
@@ -62,7 +65,6 @@ class AuthProvider extends ChangeNotifier {
       final doc = await _firestore.collection('users').doc(uid).get();
 
       if (!doc.exists) {
-        // No Firestore doc — could be mid-registration, set null and retry
         debugPrint('AuthProvider: no user doc found for $uid');
         _role = null;
         return;
@@ -70,28 +72,50 @@ class AuthProvider extends ChangeNotifier {
 
       final data = doc.data()!;
 
-      // Security check: is account active?
-      final isActive = data['is_active'] as bool? ?? true;
-      if (!isActive) {
-        debugPrint('AuthProvider: account $uid is disabled — forcing logout');
+      // Check approval status — pending accounts must wait for admin
+      final approvalStatus = data['approval_status'] as String? ?? 'approved';
+      if (approvalStatus == 'pending') {
+        debugPrint('AuthProvider: account $uid is pending approval');
+        _isPending = true;
+        _role = null;
+        // Don't sign out — let them see the pending screen
+        return;
+      }
+
+      if (approvalStatus == 'rejected') {
+        debugPrint('AuthProvider: account $uid was rejected');
         _isAccountDisabled = true;
+        _isPending = false;
         _role = null;
         await _auth.signOut();
         return;
       }
 
-      // Security check: is role valid?
+      // Check if account is active
+      final isActive = data['is_active'] as bool? ?? true;
+      if (!isActive) {
+        debugPrint('AuthProvider: account $uid is disabled — forcing logout');
+        _isAccountDisabled = true;
+        _isPending = false;
+        _role = null;
+        await _auth.signOut();
+        return;
+      }
+
+      // Check role validity
       final fetchedRole = data['role'] as String?;
       if (fetchedRole == null || !_validRoles.contains(fetchedRole)) {
         debugPrint(
           'AuthProvider: invalid role "$fetchedRole" for $uid — forcing logout',
         );
         _role = null;
+        _isPending = false;
         await _auth.signOut();
         return;
       }
 
       _role = fetchedRole;
+      _isPending = false;
       _isAccountDisabled = false;
       debugPrint('AuthProvider: uid=$uid role=$_role verified ✓');
     } catch (e) {
@@ -106,6 +130,7 @@ class AuthProvider extends ChangeNotifier {
     try {
       _role = null;
       _user = null;
+      _isPending = false;
       notifyListeners();
       await _auth.signOut();
     } catch (e) {
@@ -114,7 +139,6 @@ class AuthProvider extends ChangeNotifier {
   }
 
   /// Re-reads users/{uid}.role from Firestore without re-authenticating.
-  /// Call this after registration or after an admin changes a user's role.
   Future<void> refreshRole() async {
     final uid = _user?.uid;
     if (uid == null) return;

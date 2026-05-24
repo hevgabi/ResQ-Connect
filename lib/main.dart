@@ -9,6 +9,7 @@ import 'providers/auth_provider.dart';
 // ── Entry screens ─────────────────────────────────────────────────────────────
 import 'screens/entry/splash_screen.dart';
 import 'screens/entry/login_screen.dart';
+import 'screens/entry/register_screen.dart';
 
 // ── Role dashboards ───────────────────────────────────────────────────────────
 import 'screens/citizen/citizen_home_screen.dart';
@@ -36,13 +37,16 @@ class ResQConnectApp extends StatelessWidget {
         debugShowCheckedModeBanner: false,
         theme: AppTheme.lightTheme,
         home: const RootRouter(),
+        routes: {
+          '/login': (_) => const LoginScreen(),
+          '/register': (_) => const RegisterScreen(),
+        },
       ),
     );
   }
 }
 
-/// Listens to [AuthProvider] and routes the user to the correct screen
-/// based on their authentication state and Firestore role.
+/// Listens to [AuthProvider] and routes the user to the correct screen.
 class RootRouter extends StatelessWidget {
   const RootRouter();
 
@@ -55,7 +59,7 @@ class RootRouter extends StatelessWidget {
           return const SplashScreen();
         }
 
-        // ── Account disabled ─────────────────────────────────────────────────
+        // ── Account disabled / rejected ───────────────────────────────────────
         if (auth.isAccountDisabled) {
           return const _DisabledAccountScreen();
         }
@@ -65,9 +69,12 @@ class RootRouter extends StatelessWidget {
           return const LoginScreen();
         }
 
+        // ── Authenticated but pending admin approval ──────────────────────────
+        if (auth.isPending) {
+          return const _PendingApprovalScreen();
+        }
+
         // ── Authenticated — strict role-based routing ────────────────────────
-        // Only exact role matches are allowed. Any unknown or null role
-        // goes to _RoleResolvingScreen which retries or forces logout.
         switch (auth.role) {
           case 'citizen':
             return const CitizenHomeScreen();
@@ -78,7 +85,6 @@ class RootRouter extends StatelessWidget {
           case 'admin':
             return const AdminOverviewScreen();
           default:
-            // Role is null or unrecognized — retry or force logout
             return const _RoleResolvingScreen();
         }
       },
@@ -86,11 +92,277 @@ class RootRouter extends StatelessWidget {
   }
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Role Resolving Screen
-// Shown when user is authenticated but role is null (e.g. mid-registration
-// or Firestore read failed). Retries once, then offers sign out.
-// ─────────────────────────────────────────────────────────────────────────────
+// =============================================================================
+// PENDING APPROVAL SCREEN
+// =============================================================================
+
+class _PendingApprovalScreen extends StatelessWidget {
+  const _PendingApprovalScreen();
+
+  static const _primaryBlue = Color(0xFF0D47A1);
+  static const _warningOrange = Color(0xFFFF6B00);
+  static const _successGreen = Color(0xFF1FAA59);
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: const Color(0xFFF5F7FA),
+      body: SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.all(32),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Container(
+                width: 100,
+                height: 100,
+                decoration: BoxDecoration(
+                  color: _warningOrange.withAlpha(20),
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(
+                  Icons.hourglass_empty_rounded,
+                  color: _warningOrange,
+                  size: 50,
+                ),
+              ),
+              const SizedBox(height: 28),
+              const Text(
+                'Account Pending Approval',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  fontSize: 22,
+                  fontWeight: FontWeight.w800,
+                  color: Color(0xFF263238),
+                ),
+              ),
+              const SizedBox(height: 16),
+              const Text(
+                'Your account is currently under review by our administrators.',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  fontSize: 14,
+                  color: Color(0xFF546E7A),
+                  height: 1.5,
+                ),
+              ),
+              const SizedBox(height: 24),
+
+              // Timeline card
+              Container(
+                padding: const EdgeInsets.all(20),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(16),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withAlpha(13),
+                      blurRadius: 8,
+                      offset: const Offset(0, 3),
+                    ),
+                  ],
+                ),
+                child: Column(
+                  children: [
+                    _TimelineStep(
+                      icon: Icons.check_circle,
+                      iconColor: _successGreen,
+                      title: 'Registration Complete',
+                      subtitle: 'Your account has been created',
+                      isDone: true,
+                    ),
+                    _TimelineDivider(isDone: true),
+                    _TimelineStep(
+                      icon: Icons.mark_email_read_outlined,
+                      iconColor: _successGreen,
+                      title: 'Email Verified',
+                      subtitle: 'Your email has been confirmed',
+                      isDone: true,
+                    ),
+                    _TimelineDivider(isDone: false),
+                    _TimelineStep(
+                      icon: Icons.admin_panel_settings_outlined,
+                      iconColor: _warningOrange,
+                      title: 'Admin Review',
+                      subtitle: 'Estimated: 1–3 business days',
+                      isDone: false,
+                      isActive: true,
+                    ),
+                    _TimelineDivider(isDone: false),
+                    _TimelineStep(
+                      icon: Icons.login_outlined,
+                      iconColor: const Color(0xFF90A4AE),
+                      title: 'Account Activated',
+                      subtitle: 'You can start using ResQConnect',
+                      isDone: false,
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 24),
+
+              Container(
+                padding: const EdgeInsets.all(14),
+                decoration: BoxDecoration(
+                  color: _primaryBlue.withAlpha(15),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: _primaryBlue.withAlpha(40)),
+                ),
+                child: const Row(
+                  children: [
+                    Icon(
+                      Icons.notifications_outlined,
+                      color: _primaryBlue,
+                      size: 18,
+                    ),
+                    SizedBox(width: 10),
+                    Expanded(
+                      child: Text(
+                        'You will receive an email once your account is approved.',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: _primaryBlue,
+                          height: 1.4,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 32),
+
+              SizedBox(
+                width: double.infinity,
+                height: 52,
+                child: OutlinedButton.icon(
+                  onPressed: () => context.read<AuthProvider>().logout(),
+                  icon: const Icon(Icons.logout, size: 18),
+                  label: const Text('Sign Out'),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: const Color(0xFF546E7A),
+                    side: const BorderSide(
+                      color: Color(0xFFCFD8DC),
+                      width: 1.5,
+                    ),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(14),
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _TimelineStep extends StatelessWidget {
+  final IconData icon;
+  final Color iconColor;
+  final String title;
+  final String subtitle;
+  final bool isDone;
+  final bool isActive;
+
+  const _TimelineStep({
+    required this.icon,
+    required this.iconColor,
+    required this.title,
+    required this.subtitle,
+    required this.isDone,
+    this.isActive = false,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final active = isDone || isActive;
+    return Row(
+      children: [
+        Container(
+          width: 36,
+          height: 36,
+          decoration: BoxDecoration(
+            color: iconColor.withAlpha(active ? 30 : 15),
+            shape: BoxShape.circle,
+          ),
+          child: Icon(
+            icon,
+            color: active ? iconColor : const Color(0xFFB0BEC5),
+            size: 18,
+          ),
+        ),
+        const SizedBox(width: 14),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                title,
+                style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w700,
+                  color: active
+                      ? const Color(0xFF263238)
+                      : const Color(0xFFB0BEC5),
+                ),
+              ),
+              Text(
+                subtitle,
+                style: TextStyle(
+                  fontSize: 11,
+                  color: active
+                      ? const Color(0xFF546E7A)
+                      : const Color(0xFFCFD8DC),
+                ),
+              ),
+            ],
+          ),
+        ),
+        if (isActive)
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+            decoration: BoxDecoration(
+              color: const Color(0xFFFF6B00).withAlpha(25),
+              borderRadius: BorderRadius.circular(6),
+            ),
+            child: const Text(
+              'In Progress',
+              style: TextStyle(
+                fontSize: 10,
+                fontWeight: FontWeight.w700,
+                color: Color(0xFFFF6B00),
+              ),
+            ),
+          ),
+      ],
+    );
+  }
+}
+
+class _TimelineDivider extends StatelessWidget {
+  final bool isDone;
+  const _TimelineDivider({required this.isDone});
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(left: 17),
+      child: Container(
+        width: 2,
+        height: 20,
+        color: isDone
+            ? const Color(0xFF1FAA59).withAlpha(80)
+            : const Color(0xFFCFD8DC),
+      ),
+    );
+  }
+}
+
+// =============================================================================
+// ROLE RESOLVING SCREEN
+// =============================================================================
 
 class _RoleResolvingScreen extends StatefulWidget {
   const _RoleResolvingScreen();
@@ -116,7 +388,6 @@ class _RoleResolvingScreenState extends State<_RoleResolvingScreen> {
   Future<void> _retry() async {
     if (!mounted) return;
     if (_retryCount >= _maxRetries) {
-      // Too many retries — force logout
       debugPrint('RootRouter: max retries reached, forcing logout');
       await context.read<AuthProvider>().logout();
       return;
@@ -124,7 +395,6 @@ class _RoleResolvingScreenState extends State<_RoleResolvingScreen> {
     setState(() => _retryCount++);
     await context.read<AuthProvider>().refreshRole();
 
-    // If still no role after refresh, schedule another retry
     if (mounted && context.read<AuthProvider>().role == null) {
       _scheduleRetry();
     }
@@ -190,10 +460,9 @@ class _RoleResolvingScreenState extends State<_RoleResolvingScreen> {
   }
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Disabled Account Screen
-// Shown when is_active == false in Firestore
-// ─────────────────────────────────────────────────────────────────────────────
+// =============================================================================
+// DISABLED ACCOUNT SCREEN
+// =============================================================================
 
 class _DisabledAccountScreen extends StatelessWidget {
   const _DisabledAccountScreen();
