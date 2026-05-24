@@ -5,6 +5,7 @@ import 'package:google_sign_in/google_sign_in.dart';
 
 import '../../providers/auth_provider.dart';
 import '../../main.dart' show RootRouter;
+import 'forgot_password_screen.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -170,24 +171,11 @@ class _LoginScreenState extends State<LoginScreen>
     }
   }
 
-  Future<void> _forgotPassword() async {
-    final email = _emailController.text.trim();
-    if (email.isEmpty) {
-      _showSnackBar(
-        'Enter your email address first, then tap Forgot Password.',
-      );
-      return;
-    }
-    try {
-      await FirebaseAuth.instance.sendPasswordResetEmail(email: email);
-      _showSnackBar('Password reset email sent to $email.', isError: false);
-    } on FirebaseAuthException catch (e) {
-      if (e.code == 'user-not-found') {
-        _showSnackBar('No account found with that email address.');
-      } else {
-        _showSnackBar('Could not send reset email. Please try again.');
-      }
-    }
+  void _forgotPassword() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => const ForgotPasswordScreen()),
+    );
   }
 
   // ─── Build ───────────────────────────────────────────────────────────────────
