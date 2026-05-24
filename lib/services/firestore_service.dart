@@ -142,6 +142,9 @@ class FirestoreService {
   // ── Users ─────────────────────────────────────────────────────────────────
 
   /// Fetch a user's Firestore profile. Returns null if the document doesn't exist.
+  /// Alias for getUser — returns users/{uid} data map
+  Future<Map<String, dynamic>?> getUserDoc(String uid) => getUser(uid);
+
   Future<Map<String, dynamic>?> getUser(String uid) async {
     final doc = await _users.doc(uid).get();
     if (!doc.exists) return null;
