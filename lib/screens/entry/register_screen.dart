@@ -6,8 +6,8 @@ import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
 
 import '../../providers/auth_provider.dart';
-import '../../services/storage_service.dart';
 import '../../widgets/loading_overlay.dart';
+import 'otp_verification_screen.dart';
 
 class RegisterScreen extends StatefulWidget {
   const RegisterScreen({super.key});
@@ -177,71 +177,65 @@ class _RegisterScreenState extends State<RegisterScreen>
   Future<void> _submit() async {
     if (!_formKey.currentState!.validate()) return;
     setState(() => _isLoading = true);
-    User? createdUser;
 
     try {
-      final credential = await FirebaseAuth.instance
-          .createUserWithEmailAndPassword(
-            email: _emailCtrl.text.trim(),
-            password: _passwordCtrl.text,
+      final email = _emailCtrl.text.trim();
+
+      // ── Check if email already exists in Firebase Auth ─────────────────────
+      // We do this by trying to fetch sign-in methods for the email.
+      // If it already has methods, the account exists (verified or not).
+      final methods = await FirebaseAuth.instance.fetchSignInMethodsForEmail(
+        email,
+      );
+      if (methods.isNotEmpty) {
+        // Account already exists in Firebase Auth — could be a verified user
+        // trying to re-register. Show "already exists" error.
+        if (mounted) {
+          _showSnack(
+            'An account with this email already exists.',
+            isError: true,
           );
-      createdUser = credential.user;
-      final uid = createdUser!.uid;
-
-      // Send verification email
-      await createdUser.sendEmailVerification();
-
-      String? govIdUrl;
-      if (_govIdFile != null) {
-        govIdUrl = await StorageService.instance.uploadGovId(uid, _govIdFile!);
+        }
+        return;
       }
 
-      final userDoc = <String, dynamic>{
-        'first_name': _firstNameCtrl.text.trim(),
-        'last_name': _lastNameCtrl.text.trim(),
-        'email': _emailCtrl.text.trim(),
-        'phone': _phoneCtrl.text.trim(),
-        'gender': _selectedGender,
-        'address': {
-          'street': _streetCtrl.text.trim(),
-          'city': _cityCtrl.text.trim(),
-          'province': _provinceCtrl.text.trim(),
-          'zip': _zipCtrl.text.trim(),
-        },
-        'role': _selectedRole,
-        'blood_type': '',
-        'allergies': '',
-        'is_active': false,
-        'is_email_verified': false,
-        'approval_status': 'pending',
-        'created_at': FieldValue.serverTimestamp(),
-      };
-      if (govIdUrl != null) userDoc['gov_id_url'] = govIdUrl;
+      // ── Send OTP first — no Auth or Firestore writes yet ──────────────────
+      await OtpHelper.generateAndSend(
+        email: email,
+        purpose: OtpPurpose.registration,
+      );
 
-      await FirebaseFirestore.instance
-          .collection('users')
-          .doc(uid)
-          .set(userDoc);
-
-      if (_selectedRole == 'rescuer') {
-        await FirebaseFirestore.instance.collection('rescuers').doc(uid).set({
-          'user_id': uid,
-          'agency_name': _agencyNameCtrl.text.trim(),
-          'badge_number': _badgeNumberCtrl.text.trim(),
-          'is_on_duty': false,
-          'team_capacity_max': 5,
-          'active_mission_count': 0,
-        });
-      }
-
-      // Sign out — must verify email first, then wait for admin approval
-      await FirebaseAuth.instance.signOut();
+      // ── Build pending registration data to pass to OTP screen ─────────────
+      final pendingData = PendingRegistrationData(
+        email: email,
+        password: _passwordCtrl.text,
+        firstName: _firstNameCtrl.text.trim(),
+        lastName: _lastNameCtrl.text.trim(),
+        phone: _phoneCtrl.text.trim(),
+        gender: _selectedGender,
+        street: _streetCtrl.text.trim(),
+        city: _cityCtrl.text.trim(),
+        province: _provinceCtrl.text.trim(),
+        zip: _zipCtrl.text.trim(),
+        role: _selectedRole,
+        govIdFile: _govIdFile,
+        agencyName: _selectedRole == 'rescuer'
+            ? _agencyNameCtrl.text.trim()
+            : null,
+        badgeNumber: _selectedRole == 'rescuer'
+            ? _badgeNumberCtrl.text.trim()
+            : null,
+      );
 
       if (mounted) {
         Navigator.pushAndRemoveUntil(
           context,
           MaterialPageRoute(
-            builder: (_) => VerifyEmailScreen(email: _emailCtrl.text.trim()),
+            builder: (_) => OtpVerificationScreen(
+              email: email,
+              purpose: OtpPurpose.registration,
+              pendingRegistration: pendingData,
+            ),
           ),
           (route) => false,
         );
@@ -249,11 +243,6 @@ class _RegisterScreenState extends State<RegisterScreen>
     } on FirebaseAuthException catch (e) {
       if (mounted) _showAuthError(e);
     } catch (e) {
-      if (createdUser != null) {
-        try {
-          await createdUser.delete();
-        } catch (_) {}
-      }
       if (mounted)
         _showSnack('Something went wrong. Please try again.', isError: true);
     } finally {
@@ -880,200 +869,6 @@ class _RegisterScreenState extends State<RegisterScreen>
         focusedErrorBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(12),
           borderSide: const BorderSide(color: _dangerRed, width: 1.8),
-        ),
-      ),
-    );
-  }
-}
-
-// =============================================================================
-// VERIFY EMAIL SCREEN
-// =============================================================================
-
-class VerifyEmailScreen extends StatefulWidget {
-  final String email;
-  const VerifyEmailScreen({super.key, required this.email});
-
-  @override
-  State<VerifyEmailScreen> createState() => _VerifyEmailScreenState();
-}
-
-class _VerifyEmailScreenState extends State<VerifyEmailScreen> {
-  bool _isResending = false;
-  bool _resentSuccess = false;
-
-  static const _primaryBlue = Color(0xFF0D47A1);
-  static const _successGreen = Color(0xFF1FAA59);
-  static const _dangerRed = Color(0xFFD7263D);
-
-  Future<void> _resendEmail() async {
-    setState(() {
-      _isResending = true;
-      _resentSuccess = false;
-    });
-    try {
-      // Re-sign in not possible here since user is signed out after registration.
-      // Show helpful message instead.
-      await Future.delayed(const Duration(seconds: 1));
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Please sign in to resend the verification email.'),
-            backgroundColor: _primaryBlue,
-            behavior: SnackBarBehavior.floating,
-          ),
-        );
-      }
-    } finally {
-      if (mounted) setState(() => _isResending = false);
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: const Color(0xFFF5F7FA),
-      body: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.all(32),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Container(
-                width: 88,
-                height: 88,
-                decoration: BoxDecoration(
-                  color: _primaryBlue.withAlpha(20),
-                  shape: BoxShape.circle,
-                ),
-                child: const Icon(
-                  Icons.mark_email_unread_outlined,
-                  color: _primaryBlue,
-                  size: 44,
-                ),
-              ),
-              const SizedBox(height: 28),
-              const Text(
-                'Verify Your Email',
-                style: TextStyle(
-                  fontSize: 24,
-                  fontWeight: FontWeight.w800,
-                  color: Color(0xFF263238),
-                ),
-              ),
-              const SizedBox(height: 12),
-              Text(
-                'We sent a verification link to\n${widget.email}',
-                textAlign: TextAlign.center,
-                style: const TextStyle(
-                  fontSize: 14,
-                  color: Color(0xFF546E7A),
-                  height: 1.5,
-                ),
-              ),
-              const SizedBox(height: 8),
-              const Text(
-                'Please check your inbox and click the link to verify your email.',
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                  fontSize: 13,
-                  color: Color(0xFF546E7A),
-                  height: 1.5,
-                ),
-              ),
-              const SizedBox(height: 32),
-
-              // Info box
-              Container(
-                padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(
-                  color: _successGreen.withAlpha(20),
-                  borderRadius: BorderRadius.circular(14),
-                  border: Border.all(color: _successGreen.withAlpha(60)),
-                ),
-                child: const Row(
-                  children: [
-                    Icon(Icons.info_outline, color: _successGreen, size: 20),
-                    SizedBox(width: 12),
-                    Expanded(
-                      child: Text(
-                        'After verifying your email, your account will be reviewed by an admin within 1–3 business days.',
-                        style: TextStyle(
-                          fontSize: 12,
-                          color: Color(0xFF2E7D32),
-                          height: 1.4,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 32),
-
-              if (_resentSuccess)
-                const Padding(
-                  padding: EdgeInsets.only(bottom: 16),
-                  child: Text(
-                    'Verification email resent!',
-                    style: TextStyle(
-                      color: _successGreen,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                ),
-
-              SizedBox(
-                width: double.infinity,
-                height: 52,
-                child: ElevatedButton(
-                  onPressed: () => Navigator.pushNamedAndRemoveUntil(
-                    context,
-                    '/login',
-                    (r) => false,
-                  ),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: _primaryBlue,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(14),
-                    ),
-                  ),
-                  child: const Text(
-                    'Back to Sign In',
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontSize: 15,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                ),
-              ),
-              const SizedBox(height: 16),
-              TextButton.icon(
-                onPressed: _isResending ? null : _resendEmail,
-                icon: _isResending
-                    ? const SizedBox(
-                        width: 14,
-                        height: 14,
-                        child: CircularProgressIndicator(
-                          strokeWidth: 2,
-                          color: _primaryBlue,
-                        ),
-                      )
-                    : const Icon(
-                        Icons.refresh,
-                        size: 16,
-                        color: Color(0xFF546E7A),
-                      ),
-                label: Text(
-                  _isResending ? 'Sending...' : 'Resend Verification Email',
-                  style: const TextStyle(
-                    color: Color(0xFF546E7A),
-                    fontSize: 13,
-                  ),
-                ),
-              ),
-            ],
-          ),
         ),
       ),
     );

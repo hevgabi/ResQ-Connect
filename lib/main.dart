@@ -9,7 +9,9 @@ import 'providers/auth_provider.dart';
 // ── Entry screens ─────────────────────────────────────────────────────────────
 import 'screens/entry/splash_screen.dart';
 import 'screens/entry/login_screen.dart';
+import 'screens/entry/otp_verification_screen.dart';
 import 'screens/entry/register_screen.dart';
+import 'screens/entry/google_complete_profile_screen.dart';
 
 // ── Role dashboards ───────────────────────────────────────────────────────────
 import 'screens/citizen/citizen_home_screen.dart';
@@ -64,6 +66,11 @@ class RootRouter extends StatelessWidget {
           return const _DisabledAccountScreen();
         }
 
+        // ── Unverified — OTP not yet confirmed ───────────────────────────────
+        if (auth.isUnverified) {
+          return _UnverifiedScreen(email: auth.unverifiedEmail ?? '');
+        }
+
         // ── Not authenticated ────────────────────────────────────────────────
         if (auth.user == null) {
           return const LoginScreen();
@@ -72,6 +79,11 @@ class RootRouter extends StatelessWidget {
         // ── Authenticated but pending admin approval ──────────────────────────
         if (auth.isPending) {
           return const _PendingApprovalScreen();
+        }
+
+        // ── Google user authenticated but no Firestore doc yet ───────────────
+        if (auth.isNeedsProfileCompletion && auth.user != null) {
+          return GoogleCompleteProfileScreen(googleUser: auth.user!);
         }
 
         // ── Authenticated — strict role-based routing ────────────────────────
@@ -95,6 +107,103 @@ class RootRouter extends StatelessWidget {
 // =============================================================================
 // PENDING APPROVAL SCREEN
 // =============================================================================
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Unverified Screen — shown when approval_status == 'unverified'
+// ─────────────────────────────────────────────────────────────────────────────
+
+class _UnverifiedScreen extends StatelessWidget {
+  final String email;
+  const _UnverifiedScreen({required this.email});
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: const Color(0xFFF5F7FA),
+      body: SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.all(32),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Container(
+                width: 88,
+                height: 88,
+                decoration: BoxDecoration(
+                  color: const Color(0xFF0D47A1).withAlpha(20),
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(
+                  Icons.mark_email_unread_outlined,
+                  color: Color(0xFF0D47A1),
+                  size: 44,
+                ),
+              ),
+              const SizedBox(height: 24),
+              const Text(
+                'Email Not Verified',
+                style: TextStyle(
+                  fontSize: 22,
+                  fontWeight: FontWeight.w800,
+                  color: Color(0xFF263238),
+                ),
+              ),
+              const SizedBox(height: 12),
+              Text(
+                'Please verify your email address to continue.',
+                textAlign: TextAlign.center,
+                style: const TextStyle(
+                  fontSize: 14,
+                  color: Color(0xFF546E7A),
+                  height: 1.5,
+                ),
+              ),
+              const SizedBox(height: 32),
+              SizedBox(
+                width: double.infinity,
+                height: 52,
+                child: ElevatedButton(
+                  onPressed: () {
+                    Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (_) => OtpVerificationScreen(
+                          email: email,
+                          purpose: OtpPurpose.registration,
+                        ),
+                      ),
+                    );
+                  },
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF0D47A1),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(14),
+                    ),
+                  ),
+                  child: const Text(
+                    'Verify Email',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 16,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 16),
+              TextButton(
+                onPressed: () => context.read<AuthProvider>().logout(),
+                child: const Text(
+                  'Sign Out',
+                  style: TextStyle(color: Color(0xFF546E7A), fontSize: 14),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
 
 class _PendingApprovalScreen extends StatelessWidget {
   const _PendingApprovalScreen();

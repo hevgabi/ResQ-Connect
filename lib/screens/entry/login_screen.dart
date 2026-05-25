@@ -121,13 +121,35 @@ class _LoginScreenState extends State<LoginScreen>
 
     setState(() => _isEmailLoading = true);
     try {
-      await FirebaseAuth.instance.signInWithEmailAndPassword(
+      final credential = await FirebaseAuth.instance.signInWithEmailAndPassword(
         email: _emailController.text.trim(),
         password: _passwordController.text,
       );
-      // Replace the entire stack with RootRouter so it can route to the
-      // correct home screen based on the user's role. This handles both
-      // normal login and login-after-logout correctly.
+
+      // Check Firestore: has this user completed OTP email verification?
+      final uid = credential.user?.uid;
+      if (uid != null) {
+        final doc = await FirebaseFirestore.instance
+            .collection('users')
+            .doc(uid)
+            .get();
+
+        final isEmailVerified =
+            (doc.data()?['is_email_verified'] as bool?) ?? false;
+
+        if (!isEmailVerified) {
+          // Sign them back out — account not yet OTP-verified
+          await FirebaseAuth.instance.signOut();
+          if (mounted) {
+            _showSnackBar(
+              'Your email is not verified yet. Please check your inbox for the OTP.',
+            );
+          }
+          return;
+        }
+      }
+
+      // Email verified — let RootRouter route to the correct home screen.
       if (mounted) {
         Navigator.of(context).pushAndRemoveUntil(
           MaterialPageRoute(builder: (_) => const RootRouter()),
@@ -167,22 +189,37 @@ class _LoginScreenState extends State<LoginScreen>
         return;
       }
 
-      // Check if this Google user already has a Firestore doc (existing user)
+      final isNewUser = result.additionalUserInfo?.isNewUser ?? false;
+
+      if (isNewUser) {
+        // Brand new Google user — go to profile completion immediately
+        // before AuthProvider's _RoleResolvingScreen kicks in
+        if (mounted) {
+          Navigator.of(context).pushAndRemoveUntil(
+            MaterialPageRoute(
+              builder: (_) =>
+                  GoogleCompleteProfileScreen(googleUser: firebaseUser),
+            ),
+            (route) => false,
+          );
+        }
+        return;
+      }
+
+      // Existing user — check Firestore for approval status
       final doc = await FirebaseFirestore.instance
           .collection('users')
           .doc(firebaseUser.uid)
           .get();
 
+      debugPrint(
+        'Google sign-in: uid=${firebaseUser.uid} doc.exists=${doc.exists}',
+      );
+
       if (!mounted) return;
 
-      if (doc.exists) {
-        // Existing user — let RootRouter handle routing (pending / approved / etc.)
-        Navigator.of(context).pushAndRemoveUntil(
-          MaterialPageRoute(builder: (_) => const RootRouter()),
-          (route) => false,
-        );
-      } else {
-        // New Google user — complete profile first
+      if (!doc.exists) {
+        // Auth account exists but no Firestore doc — treat as new user
         Navigator.of(context).pushAndRemoveUntil(
           MaterialPageRoute(
             builder: (_) =>
@@ -190,10 +227,45 @@ class _LoginScreenState extends State<LoginScreen>
           ),
           (route) => false,
         );
+        return;
+      }
+      final approvalStatus = doc.data()?['approval_status'] as String? ?? '';
+
+      if (approvalStatus == 'pending') {
+        // Still waiting for admin — sign out and show pending message
+        await FirebaseAuth.instance.signOut();
+        if (mounted) {
+          _showSnackBar(
+            'Your account is still under admin review. Please wait 1–3 business days.',
+            isError: false,
+          );
+        }
+        return;
+      }
+
+      if (approvalStatus == 'rejected' || approvalStatus == 'unverified') {
+        await FirebaseAuth.instance.signOut();
+        if (mounted) {
+          _showSnackBar(
+            'Your account cannot be accessed. Please contact support.',
+          );
+        }
+        return;
+      }
+
+      // Approved — let RootRouter handle routing
+      if (mounted) {
+        Navigator.of(context).pushAndRemoveUntil(
+          MaterialPageRoute(builder: (_) => const RootRouter()),
+          (route) => false,
+        );
       }
     } on FirebaseAuthException catch (e) {
+      await FirebaseAuth.instance.signOut();
       _showSnackBar(_friendlyError(e));
-    } catch (_) {
+    } catch (e) {
+      debugPrint('Google sign-in catch error: $e');
+      await FirebaseAuth.instance.signOut();
       _showSnackBar('Google sign-in failed. Please try again.');
     } finally {
       if (mounted) setState(() => _isGoogleLoading = false);

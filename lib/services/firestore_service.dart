@@ -253,11 +253,11 @@ class FirestoreService {
   // NEW — USER APPROVALS (ADMIN)
   // ═══════════════════════════════════════════════════════════════════════════
 
-  /// Live stream of all users with status == 'pending', newest first.
+  /// Live stream of all users with approval_status == 'pending', newest first.
   /// Used in the admin Approvals tab.
   Stream<List<Map<String, dynamic>>> pendingUsersStream() {
     return _users
-        .where('status', isEqualTo: 'pending')
+        .where('approval_status', isEqualTo: 'pending')
         .orderBy('created_at', descending: true)
         .snapshots()
         .map(
@@ -270,24 +270,26 @@ class FirestoreService {
   }
 
   /// Approves a user registration.
-  /// Sets status to 'approved' and records the approving admin's ID.
+  /// Sets approval_status to 'approved' and records the approving admin's ID.
   Future<void> approveUser(String uid, String adminId) async {
     await _users.doc(uid).update({
-      'status': 'approved',
+      'approval_status': 'approved',
+      'is_active': true,
       'approved_by': adminId,
       'approved_at': FieldValue.serverTimestamp(),
     });
   }
 
   /// Rejects a user registration.
-  /// Sets status to 'rejected', records reason and the admin's ID.
+  /// Sets approval_status to 'rejected', records reason and the admin's ID.
   Future<void> rejectUser(
     String uid,
     String adminId, {
     String reason = '',
   }) async {
     await _users.doc(uid).update({
-      'status': 'rejected',
+      'approval_status': 'rejected',
+      'is_active': false,
       'rejected_by': adminId,
       'rejected_at': FieldValue.serverTimestamp(),
       'rejection_reason': reason,
@@ -307,7 +309,7 @@ class FirestoreService {
     try {
       final emailSnap = await _users
           .where('email', isEqualTo: email)
-          .where('status', isEqualTo: 'approved')
+          .where('approval_status', isEqualTo: 'approved')
           .limit(1)
           .get();
       for (final doc in emailSnap.docs) {
@@ -320,7 +322,7 @@ class FirestoreService {
       try {
         final phoneSnap = await _users
             .where('phone', isEqualTo: phone)
-            .where('status', isEqualTo: 'approved')
+            .where('approval_status', isEqualTo: 'approved')
             .limit(1)
             .get();
         for (final doc in phoneSnap.docs) {
@@ -336,7 +338,7 @@ class FirestoreService {
   /// Used in the admin overview KPI card and nav badge.
   Stream<int> pendingApprovalsCountStream() {
     return _users
-        .where('status', isEqualTo: 'pending')
+        .where('approval_status', isEqualTo: 'pending')
         .snapshots()
         .map((snap) => snap.docs.length);
   }

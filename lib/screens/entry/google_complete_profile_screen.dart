@@ -6,7 +6,7 @@ import 'package:image_picker/image_picker.dart';
 
 import '../../services/storage_service.dart';
 import '../../widgets/loading_overlay.dart';
-import 'register_screen.dart' show VerifyEmailScreen;
+import 'login_screen.dart';
 
 class GoogleCompleteProfileScreen extends StatefulWidget {
   final User googleUser;
@@ -1032,9 +1032,9 @@ class _GooglePendingScreen extends StatelessWidget {
                 width: double.infinity,
                 height: 52,
                 child: OutlinedButton.icon(
-                  onPressed: () => Navigator.pushNamedAndRemoveUntil(
+                  onPressed: () => Navigator.pushAndRemoveUntil(
                     context,
-                    '/login',
+                    MaterialPageRoute(builder: (_) => const LoginScreen()),
                     (r) => false,
                   ),
                   icon: const Icon(Icons.login, size: 18),
