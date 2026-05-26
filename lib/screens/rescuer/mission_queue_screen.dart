@@ -200,33 +200,6 @@ class _MissionQueueScreenState extends State<MissionQueueScreen> {
     }
   }
 
-  // FIXED: Defer now writes to the SOS request's 'deferred_by' array in Firestore
-  // so the deferral persists across restarts and screen rebuilds — not just locally.
-  Future<void> _deferMission(SOSRequestModel sos) async {
-    try {
-      // Atomically add this rescuer's uid to the sos_request's 'deferred_by' array.
-      // The openSOSStream will be updated to filter these out server-side.
-      await FirebaseFirestore.instance
-          .collection('sos_requests')
-          .doc(sos.id)
-          .update({
-            'deferred_by': FieldValue.arrayUnion([uid]),
-          });
-
-      if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(const SnackBar(content: Text('Mission deferred.')));
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('Defer failed: $e')));
-      }
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -344,7 +317,6 @@ class _MissionQueueScreenState extends State<MissionQueueScreen> {
                             distanceKm: _distanceKm(sos),
                             firestoreService: _firestoreService,
                             onAccept: () => _acceptMission(sos),
-                            onDefer: () => _deferMission(sos),
                             accepting: _accepting,
                           );
                         },
@@ -417,7 +389,6 @@ class _MissionCard extends StatelessWidget {
   final double distanceKm;
   final FirestoreService firestoreService;
   final VoidCallback onAccept;
-  final VoidCallback onDefer;
   final bool accepting;
 
   const _MissionCard({
@@ -428,7 +399,6 @@ class _MissionCard extends StatelessWidget {
     required this.distanceKm,
     required this.firestoreService,
     required this.onAccept,
-    required this.onDefer,
     required this.accepting,
   });
 
@@ -587,44 +557,27 @@ class _MissionCard extends StatelessWidget {
                       style: const TextStyle(fontSize: 13),
                     ),
                     const SizedBox(height: 14),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: FilledButton(
-                            onPressed: accepting ? null : onAccept,
-                            style: FilledButton.styleFrom(
-                              backgroundColor: AppTheme.primaryBlue,
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(10),
-                              ),
-                            ),
-                            child: accepting
-                                ? const SizedBox(
-                                    width: 18,
-                                    height: 18,
-                                    child: CircularProgressIndicator(
-                                      strokeWidth: 2,
-                                      color: Colors.white,
-                                    ),
-                                  )
-                                : const Text('Accept'),
+                    SizedBox(
+                      width: double.infinity,
+                      child: FilledButton(
+                        onPressed: accepting ? null : onAccept,
+                        style: FilledButton.styleFrom(
+                          backgroundColor: AppTheme.primaryBlue,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(10),
                           ),
                         ),
-                        const SizedBox(width: 10),
-                        Expanded(
-                          child: OutlinedButton(
-                            onPressed: onDefer,
-                            style: OutlinedButton.styleFrom(
-                              foregroundColor: AppTheme.textSecondary,
-                              side: BorderSide(color: Colors.grey.shade400),
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(10),
-                              ),
-                            ),
-                            child: const Text('Defer'),
-                          ),
-                        ),
-                      ],
+                        child: accepting
+                            ? const SizedBox(
+                                width: 18,
+                                height: 18,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  color: Colors.white,
+                                ),
+                              )
+                            : const Text('Accept Mission'),
+                      ),
                     ),
                   ],
                 ),

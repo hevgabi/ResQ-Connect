@@ -28,7 +28,6 @@ class _RescuerProfileScreenState extends State<RescuerProfileScreen> {
   bool _loading = false;
   bool _togglingDuty = false;
 
-  // Real-time stream subscriptions — keeps duty status always in sync with Firestore
   StreamSubscription? _rescuerStreamSub;
   StreamSubscription? _userStreamSub;
 
@@ -47,9 +46,6 @@ class _RescuerProfileScreenState extends State<RescuerProfileScreen> {
     _subscribeToStreams();
   }
 
-  /// Subscribe to real-time Firestore snapshots instead of one-shot fetches.
-  /// This ensures the On/Off Duty switch always reflects the true Firestore value
-  /// and cannot be overridden by stale one-time reads on navigation.
   void _subscribeToStreams() {
     _rescuerStreamSub = FirebaseFirestore.instance
         .collection('rescuers')
@@ -60,8 +56,6 @@ class _RescuerProfileScreenState extends State<RescuerProfileScreen> {
           final rData = doc.data();
           setState(() {
             _rescuerData = rData;
-            // Only update _onDuty if we are not in the middle of a local toggle
-            // to avoid flicker. Once Firestore confirms, _togglingDuty is cleared.
             if (!_togglingDuty) {
               _onDuty = rData?['is_on_duty'] ?? false;
             }
@@ -86,10 +80,8 @@ class _RescuerProfileScreenState extends State<RescuerProfileScreen> {
         });
   }
 
-  /// Toggle duty status: update local state immediately for instant UI feedback,
-  /// then persist to Firestore. The stream listener will confirm the final value.
   Future<void> _toggleDuty(bool value) async {
-    if (_togglingDuty) return; // prevent double-tap
+    if (_togglingDuty) return;
     setState(() {
       _togglingDuty = true;
       _onDuty = value;
@@ -97,7 +89,6 @@ class _RescuerProfileScreenState extends State<RescuerProfileScreen> {
     try {
       await _firestoreService.updateRescuerDuty(uid, value);
     } catch (e) {
-      // Revert on error
       if (mounted) {
         setState(() => _onDuty = !value);
         ScaffoldMessenger.of(context).showSnackBar(
@@ -195,7 +186,7 @@ class _RescuerProfileScreenState extends State<RescuerProfileScreen> {
           padding: const EdgeInsets.all(16),
           child: Column(
             children: [
-              // Profile header
+              // ── Profile header ─────────────────────────────────────────
               Card(
                 elevation: 2,
                 shape: RoundedRectangleBorder(
@@ -248,6 +239,9 @@ class _RescuerProfileScreenState extends State<RescuerProfileScreen> {
                           fontSize: 13,
                         ),
                       ),
+                      const SizedBox(height: 16),
+                      // ── Inline rating summary ──────────────────────────
+                      _RatingSummaryWidget(rescuerId: uid),
                     ],
                   ),
                 ),
@@ -255,7 +249,7 @@ class _RescuerProfileScreenState extends State<RescuerProfileScreen> {
 
               const SizedBox(height: 16),
 
-              // On Duty toggle
+              // ── On Duty toggle ─────────────────────────────────────────
               Card(
                 elevation: 2,
                 shape: RoundedRectangleBorder(
@@ -297,7 +291,7 @@ class _RescuerProfileScreenState extends State<RescuerProfileScreen> {
 
               const SizedBox(height: 16),
 
-              // Team Capacity bar
+              // ── Team Capacity bar ──────────────────────────────────────
               Card(
                 elevation: 2,
                 shape: RoundedRectangleBorder(
@@ -357,7 +351,7 @@ class _RescuerProfileScreenState extends State<RescuerProfileScreen> {
 
               const SizedBox(height: 16),
 
-              // Personal info card (editable)
+              // ── Personal info card ─────────────────────────────────────
               Card(
                 elevation: 2,
                 shape: RoundedRectangleBorder(
@@ -425,7 +419,7 @@ class _RescuerProfileScreenState extends State<RescuerProfileScreen> {
 
               const SizedBox(height: 16),
 
-              // Rescuer info (read-only)
+              // ── Rescuer info (read-only) ────────────────────────────────
               Card(
                 elevation: 2,
                 shape: RoundedRectangleBorder(
@@ -464,6 +458,11 @@ class _RescuerProfileScreenState extends State<RescuerProfileScreen> {
                   ),
                 ),
               ),
+
+              const SizedBox(height: 16),
+
+              // ── Reviews section ────────────────────────────────────────
+              _ReviewsSection(rescuerId: uid),
 
               const SizedBox(height: 24),
             ],
@@ -524,6 +523,213 @@ class _RescuerProfileScreenState extends State<RescuerProfileScreen> {
           style: const TextStyle(fontSize: 15),
         ),
       ],
+    );
+  }
+}
+
+// ── Rating summary widget (shows avg stars + count) ───────────────────────────
+class _RatingSummaryWidget extends StatelessWidget {
+  final String rescuerId;
+  const _RatingSummaryWidget({required this.rescuerId});
+
+  @override
+  Widget build(BuildContext context) {
+    return StreamBuilder<QuerySnapshot>(
+      stream: FirebaseFirestore.instance
+          .collection('rescuer_reviews')
+          .where('rescuer_id', isEqualTo: rescuerId)
+          .snapshots(),
+      builder: (context, snap) {
+        if (!snap.hasData || snap.data!.docs.isEmpty) {
+          return Text(
+            'No reviews yet',
+            style: TextStyle(color: AppTheme.textSecondary, fontSize: 13),
+          );
+        }
+        final docs = snap.data!.docs;
+        final total = docs.fold<int>(
+          0,
+          (sum, d) => sum + ((d.data() as Map)['stars'] as int? ?? 0),
+        );
+        final avg = total / docs.length;
+        return Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            ...List.generate(5, (i) {
+              return Icon(
+                i < avg.round()
+                    ? Icons.star_rounded
+                    : Icons.star_outline_rounded,
+                color: const Color(0xFFFFC107),
+                size: 22,
+              );
+            }),
+            const SizedBox(width: 8),
+            Text(
+              '${avg.toStringAsFixed(1)} (${docs.length} review${docs.length == 1 ? '' : 's'})',
+              style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14),
+            ),
+          ],
+        );
+      },
+    );
+  }
+}
+
+// ── Reviews list section ───────────────────────────────────────────────────────
+class _ReviewsSection extends StatelessWidget {
+  final String rescuerId;
+  const _ReviewsSection({required this.rescuerId});
+
+  @override
+  Widget build(BuildContext context) {
+    return StreamBuilder<QuerySnapshot>(
+      stream: FirebaseFirestore.instance
+          .collection('rescuer_reviews')
+          .where('rescuer_id', isEqualTo: rescuerId)
+          .orderBy('created_at', descending: true)
+          .limit(20)
+          .snapshots(),
+      builder: (context, snap) {
+        if (snap.connectionState == ConnectionState.waiting) {
+          return const Center(
+            child: Padding(
+              padding: EdgeInsets.all(16),
+              child: CircularProgressIndicator(),
+            ),
+          );
+        }
+
+        final docs = snap.data?.docs ?? [];
+
+        return Card(
+          elevation: 2,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(14),
+          ),
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    const Icon(
+                      Icons.reviews_outlined,
+                      size: 18,
+                      color: AppTheme.primaryBlue,
+                    ),
+                    const SizedBox(width: 8),
+                    const Text(
+                      'Citizen Reviews',
+                      style: TextStyle(
+                        fontWeight: FontWeight.bold,
+                        fontSize: 15,
+                      ),
+                    ),
+                    const Spacer(),
+                    Text(
+                      '${docs.length} total',
+                      style: TextStyle(
+                        color: AppTheme.textSecondary,
+                        fontSize: 12,
+                      ),
+                    ),
+                  ],
+                ),
+                const Divider(height: 20),
+                if (docs.isEmpty)
+                  Center(
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 16),
+                      child: Text(
+                        'No reviews yet.\nThey\'ll appear here after completing missions.',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          color: AppTheme.textSecondary,
+                          fontSize: 13,
+                        ),
+                      ),
+                    ),
+                  )
+                else
+                  ...docs.map((doc) {
+                    final data = doc.data() as Map<String, dynamic>;
+                    final stars = (data['stars'] as int?) ?? 0;
+                    final comment = (data['comment'] as String?)?.trim() ?? '';
+                    final ts = data['created_at'] as Timestamp?;
+                    final date = ts != null
+                        ? _formatDate(ts.toDate())
+                        : 'Unknown date';
+                    return _ReviewTile(
+                      stars: stars,
+                      comment: comment,
+                      date: date,
+                    );
+                  }),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  String _formatDate(DateTime dt) {
+    final now = DateTime.now();
+    final diff = now.difference(dt);
+    if (diff.inDays == 0) return 'Today';
+    if (diff.inDays == 1) return 'Yesterday';
+    if (diff.inDays < 7) return '${diff.inDays} days ago';
+    return '${dt.day}/${dt.month}/${dt.year}';
+  }
+}
+
+class _ReviewTile extends StatelessWidget {
+  final int stars;
+  final String comment;
+  final String date;
+
+  const _ReviewTile({
+    required this.stars,
+    required this.comment,
+    required this.date,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 14),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              ...List.generate(
+                5,
+                (i) => Icon(
+                  i < stars ? Icons.star_rounded : Icons.star_outline_rounded,
+                  size: 16,
+                  color: const Color(0xFFFFC107),
+                ),
+              ),
+              const Spacer(),
+              Text(
+                date,
+                style: TextStyle(color: AppTheme.textSecondary, fontSize: 11),
+              ),
+            ],
+          ),
+          if (comment.isNotEmpty) ...[
+            const SizedBox(height: 5),
+            Text(
+              comment,
+              style: const TextStyle(fontSize: 13, color: Color(0xFF37474F)),
+            ),
+          ],
+          const Divider(height: 14, thickness: 0.5),
+        ],
+      ),
     );
   }
 }
