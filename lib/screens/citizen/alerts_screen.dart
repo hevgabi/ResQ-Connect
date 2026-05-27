@@ -418,15 +418,22 @@ class _AlertsScreenState extends State<AlertsScreen>
 
         final alerts = snapshot.data ?? [];
 
-        // As soon as alerts are loaded and the tab is active, mark them seen
+        // Mark alerts as seen once, without calling setState inside build
         if (_tabs.index == 1 && alerts.isNotEmpty) {
           final uid = _uid;
           if (uid != null) {
             final ids = alerts.map((a) => a.id).toList();
-            FirestoreService.instance.markAlertsAsSeen(uid, ids);
-            Future.microtask(() {
-              if (mounted) setState(() => _seenAlertIds = ids.toSet());
-            });
+            final unseenIds =
+            ids.where((id) => !_seenAlertIds.contains(id)).toList();
+            if (unseenIds.isNotEmpty) {
+              FirestoreService.instance.markAlertsAsSeen(uid, ids);
+              // Schedule the setState outside of the build phase
+              WidgetsBinding.instance.addPostFrameCallback((_) {
+                if (mounted) {
+                  setState(() => _seenAlertIds = ids.toSet());
+                }
+              });
+            }
           }
         }
 
