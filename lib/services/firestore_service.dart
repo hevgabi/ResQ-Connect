@@ -499,6 +499,11 @@ class FirestoreService {
       'ai_score': reportData['ai_score'],
       'moderator_id': moderatorId,
       'published_at': now,
+      // Engagement counters — must be initialised so citizens can
+      // increment/decrement them without PERMISSION_DENIED errors.
+      'likes': 0,
+      'liked_by': [],
+      'comments': 0,
     });
 
     // Notify the author by flagging notif_read = false on the report doc

@@ -280,17 +280,17 @@ class _CitizenHomeScreenState extends State<CitizenHomeScreen> {
     _notifSub = FirestoreService.instance
         .citizenNotificationsStream(uid)
         .listen((posts) {
-      for (final post in posts) {
-        final id = post['id'] as String;
-        if (!_seenNotifIds.contains(id)) {
-          _seenNotifIds.add(id);
-          _toastQueue.add(post);
-        }
-      }
-      if (!_showingToast && _toastQueue.isNotEmpty) {
-        _showNextToast();
-      }
-    });
+          for (final post in posts) {
+            final id = post['id'] as String;
+            if (!_seenNotifIds.contains(id)) {
+              _seenNotifIds.add(id);
+              _toastQueue.add(post);
+            }
+          }
+          if (!_showingToast && _toastQueue.isNotEmpty) {
+            _showNextToast();
+          }
+        });
   }
 
   void _showNextToast() {
@@ -321,30 +321,44 @@ class _CitizenHomeScreenState extends State<CitizenHomeScreen> {
     final uid = FirebaseAuth.instance.currentUser?.uid;
 
     // Community alerts: only light dot for alerts the user hasn't seen yet
-    _alertDotSub = FirestoreService.instance.alertsStream().listen((alerts) async {
+    _alertDotSub = FirestoreService.instance.alertsStream().listen((
+      alerts,
+    ) async {
       if (uid != null) {
         final seen = await FirestoreService.instance.getSeenAlertIds(uid);
         _alertDotHasItems = alerts.any((a) => !seen.contains(a.id));
       } else {
         _alertDotHasItems = alerts.isNotEmpty;
       }
-      if (mounted) setState(() => _hasUnread = _alertDotHasItems || _notifDotHasItems || _sosDotHasItems);
+      if (mounted)
+        setState(
+          () => _hasUnread =
+              _alertDotHasItems || _notifDotHasItems || _sosDotHasItems,
+        );
     });
 
     if (uid != null) {
       _notifDotSub = FirestoreService.instance
           .citizenNotificationsStream(uid)
           .listen((notifs) {
-        _notifDotHasItems = notifs.isNotEmpty;
-        if (mounted) setState(() => _hasUnread = _alertDotHasItems || _notifDotHasItems || _sosDotHasItems);
-      });
+            _notifDotHasItems = notifs.isNotEmpty;
+            if (mounted)
+              setState(
+                () => _hasUnread =
+                    _alertDotHasItems || _notifDotHasItems || _sosDotHasItems,
+              );
+          });
 
       _sosDotSub = FirestoreService.instance
           .citizenSosNotificationsStream(uid)
           .listen((items) {
-        _sosDotHasItems = items.isNotEmpty;
-        if (mounted) setState(() => _hasUnread = _alertDotHasItems || _notifDotHasItems || _sosDotHasItems);
-      });
+            _sosDotHasItems = items.isNotEmpty;
+            if (mounted)
+              setState(
+                () => _hasUnread =
+                    _alertDotHasItems || _notifDotHasItems || _sosDotHasItems,
+              );
+          });
     }
   }
 
@@ -391,10 +405,10 @@ class _CitizenHomeScreenState extends State<CitizenHomeScreen> {
     final dLng = _deg2rad(lng2 - lng1);
     final a =
         sin(dLat / 2) * sin(dLat / 2) +
-            cos(_deg2rad(lat1)) *
-                cos(_deg2rad(lat2)) *
-                sin(dLng / 2) *
-                sin(dLng / 2);
+        cos(_deg2rad(lat1)) *
+            cos(_deg2rad(lat2)) *
+            sin(dLng / 2) *
+            sin(dLng / 2);
     return r * 2 * atan2(sqrt(a), sqrt(1 - a));
   }
 
@@ -787,7 +801,7 @@ class _CitizenHomeScreenState extends State<CitizenHomeScreen> {
           return Column(
             children: List.generate(
               3,
-                  (_) => Padding(
+              (_) => Padding(
                 padding: const EdgeInsets.fromLTRB(16, 0, 16, 10),
                 child: _cardContainer(child: _feedSkeleton()),
               ),
@@ -1061,9 +1075,9 @@ class _FeedCardState extends State<_FeedCard> {
   // Once the user has interacted, stop syncing from the stream so a
   // Firestore re-emit never undoes the optimistic update.
   bool _hasInteracted = false;
+  bool _hasCommented = false;
 
-  String get _currentUid =>
-      FirebaseAuth.instance.currentUser?.uid ?? '';
+  String get _currentUid => FirebaseAuth.instance.currentUser?.uid ?? '';
 
   @override
   void initState() {
@@ -1081,8 +1095,10 @@ class _FeedCardState extends State<_FeedCard> {
       _liked = widget.likedBy.contains(_currentUid);
       _likeCount = widget.likesCount;
     }
-    // Always sync comment count from the stream (no local interaction to protect)
-    _commentCount = widget.commentsCount;
+    // Only sync comment count from stream if user hasn't commented locally yet
+    if (!_hasCommented) {
+      _commentCount = widget.commentsCount;
+    }
   }
 
   Future<void> _toggleLike() async {
@@ -1103,15 +1119,15 @@ class _FeedCardState extends State<_FeedCard> {
           .collection('community_feed')
           .doc(widget.postId);
       if (newLiked) {
-        await ref.update({
+        await ref.set({
           'likes': FieldValue.increment(1),
           'liked_by': FieldValue.arrayUnion([_currentUid]),
-        });
+        }, SetOptions(merge: true));
       } else {
-        await ref.update({
+        await ref.set({
           'likes': FieldValue.increment(-1),
           'liked_by': FieldValue.arrayRemove([_currentUid]),
-        });
+        }, SetOptions(merge: true));
       }
     } catch (_) {
       // Revert optimistic update on failure
@@ -1135,7 +1151,12 @@ class _FeedCardState extends State<_FeedCard> {
         postId: widget.postId,
         currentUid: _currentUid,
         onCommentAdded: () {
-          if (mounted) setState(() => _commentCount++);
+          if (mounted) {
+            setState(() {
+              _commentCount++;
+              _hasCommented = true;
+            });
+          }
         },
       ),
     );
@@ -1193,8 +1214,7 @@ class _FeedCardState extends State<_FeedCard> {
                       if (widget.timeStr.isNotEmpty)
                         Text(
                           widget.timeStr,
-                          style:
-                          const TextStyle(fontSize: 11, color: _textSec),
+                          style: const TextStyle(fontSize: 11, color: _textSec),
                         ),
                     ],
                   ),
@@ -1276,10 +1296,7 @@ class _FeedCardState extends State<_FeedCard> {
                       const SizedBox(width: 4),
                       Text(
                         '$_commentCount',
-                        style: const TextStyle(
-                          fontSize: 12,
-                          color: _textSec,
-                        ),
+                        style: const TextStyle(fontSize: 12, color: _textSec),
                       ),
                     ],
                   ),
@@ -1304,16 +1321,15 @@ class _FeedCardState extends State<_FeedCard> {
           loadingBuilder: (_, child, progress) => progress == null
               ? child
               : Container(
-            height: 200,
-            color: Colors.grey.shade100,
-            child: const Center(child: CircularProgressIndicator()),
-          ),
+                  height: 200,
+                  color: Colors.grey.shade100,
+                  child: const Center(child: CircularProgressIndicator()),
+                ),
           errorBuilder: (_, __, ___) => Container(
             height: 100,
             color: Colors.grey.shade100,
             child: const Center(
-              child:
-              Icon(Icons.broken_image_outlined, color: Colors.grey),
+              child: Icon(Icons.broken_image_outlined, color: Colors.grey),
             ),
           ),
         ),
@@ -1340,12 +1356,15 @@ class _FeedCardState extends State<_FeedCard> {
               Image.network(
                 urls[i],
                 fit: BoxFit.cover,
-                loadingBuilder: (_, child, progress) =>
-                progress == null ? child : Container(color: Colors.grey.shade100),
+                loadingBuilder: (_, child, progress) => progress == null
+                    ? child
+                    : Container(color: Colors.grey.shade100),
                 errorBuilder: (_, __, ___) => Container(
                   color: Colors.grey.shade100,
-                  child: const Icon(Icons.broken_image_outlined,
-                      color: Colors.grey),
+                  child: const Icon(
+                    Icons.broken_image_outlined,
+                    color: Colors.grey,
+                  ),
                 ),
               ),
               if (isLast)
@@ -1439,12 +1458,11 @@ class _CommentsSheetState extends State<_CommentsSheet> {
         'created_at': FieldValue.serverTimestamp(),
       });
 
-      // Increment comment count on the post (FieldValue.increment works even
-      // if the 'comments' field doesn't yet exist on the document)
+      // Increment comment count on the post document.
       await FirebaseFirestore.instance
           .collection('community_feed')
           .doc(widget.postId)
-          .set({'comments': FieldValue.increment(1)}, SetOptions(merge: true));
+          .update({'comments': FieldValue.increment(1)});
 
       // Clear the input and unfocus the keyboard
       _ctrl.clear();
@@ -1519,10 +1537,8 @@ class _CommentsSheetState extends State<_CommentsSheet> {
                     // Sort client-side — no Firestore index needed
                     final docs = List.of(snapshot.data?.docs ?? []);
                     docs.sort((a, b) {
-                      final aTs =
-                      (a.data() as Map)['created_at'] as Timestamp?;
-                      final bTs =
-                      (b.data() as Map)['created_at'] as Timestamp?;
+                      final aTs = (a.data() as Map)['created_at'] as Timestamp?;
+                      final bTs = (b.data() as Map)['created_at'] as Timestamp?;
                       if (aTs == null && bTs == null) return 0;
                       if (aTs == null) return -1;
                       if (bTs == null) return 1;
@@ -1533,13 +1549,18 @@ class _CommentsSheetState extends State<_CommentsSheet> {
                         child: Column(
                           mainAxisSize: MainAxisSize.min,
                           children: [
-                            Icon(Icons.chat_bubble_outline,
-                                size: 40, color: Colors.grey.shade300),
+                            Icon(
+                              Icons.chat_bubble_outline,
+                              size: 40,
+                              color: Colors.grey.shade300,
+                            ),
                             const SizedBox(height: 8),
                             Text(
                               'No comments yet. Be the first!',
                               style: TextStyle(
-                                  color: Colors.grey.shade400, fontSize: 13),
+                                color: Colors.grey.shade400,
+                                fontSize: 13,
+                              ),
                             ),
                           ],
                         ),
@@ -1548,28 +1569,25 @@ class _CommentsSheetState extends State<_CommentsSheet> {
                     return ListView.builder(
                       controller: scrollController,
                       padding: const EdgeInsets.symmetric(
-                          horizontal: 16, vertical: 4),
+                        horizontal: 16,
+                        vertical: 4,
+                      ),
                       itemCount: docs.length,
                       itemBuilder: (_, i) {
-                        final d =
-                        docs[i].data() as Map<String, dynamic>;
+                        final d = docs[i].data() as Map<String, dynamic>;
                         final authorName =
                             (d['author_name'] as String?) ?? 'Anonymous';
-                        final commentText =
-                            (d['text'] as String?) ?? '';
-                        final ts =
-                        (d['created_at'] as Timestamp?)?.toDate();
-                        final timeStr = ts != null
-                            ? timeago.format(ts)
-                            : '';
+                        final commentText = (d['text'] as String?) ?? '';
+                        final ts = (d['created_at'] as Timestamp?)?.toDate();
+                        final timeStr = ts != null ? timeago.format(ts) : '';
                         final initials = authorName.isNotEmpty
                             ? authorName
-                            .trim()
-                            .split(' ')
-                            .map((e) => e[0])
-                            .take(2)
-                            .join()
-                            .toUpperCase()
+                                  .trim()
+                                  .split(' ')
+                                  .map((e) => e[0])
+                                  .take(2)
+                                  .join()
+                                  .toUpperCase()
                             : '?';
 
                         return Padding(
@@ -1592,8 +1610,7 @@ class _CommentsSheetState extends State<_CommentsSheet> {
                               const SizedBox(width: 10),
                               Expanded(
                                 child: Column(
-                                  crossAxisAlignment:
-                                  CrossAxisAlignment.start,
+                                  crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
                                     Row(
                                       children: [
@@ -1610,8 +1627,9 @@ class _CommentsSheetState extends State<_CommentsSheet> {
                                           Text(
                                             timeStr,
                                             style: const TextStyle(
-                                                fontSize: 10,
-                                                color: _textSec),
+                                              fontSize: 10,
+                                              color: _textSec,
+                                            ),
                                           ),
                                         ],
                                       ],
@@ -1619,17 +1637,19 @@ class _CommentsSheetState extends State<_CommentsSheet> {
                                     const SizedBox(height: 3),
                                     Container(
                                       padding: const EdgeInsets.symmetric(
-                                          horizontal: 12, vertical: 8),
+                                        horizontal: 12,
+                                        vertical: 8,
+                                      ),
                                       decoration: BoxDecoration(
                                         color: const Color(0xFFF5F7FA),
-                                        borderRadius:
-                                        BorderRadius.circular(12),
+                                        borderRadius: BorderRadius.circular(12),
                                       ),
                                       child: Text(
                                         commentText,
                                         style: const TextStyle(
-                                            fontSize: 13,
-                                            color: Color(0xFF37474F)),
+                                          fontSize: 13,
+                                          color: Color(0xFF37474F),
+                                        ),
                                       ),
                                     ),
                                   ],
@@ -1654,8 +1674,7 @@ class _CommentsSheetState extends State<_CommentsSheet> {
                 ),
                 decoration: BoxDecoration(
                   color: Colors.white,
-                  border: Border(
-                      top: BorderSide(color: Colors.grey.shade200)),
+                  border: Border(top: BorderSide(color: Colors.grey.shade200)),
                 ),
                 child: Row(
                   children: [
@@ -1668,11 +1687,15 @@ class _CommentsSheetState extends State<_CommentsSheet> {
                         decoration: InputDecoration(
                           hintText: 'Write a comment…',
                           hintStyle: TextStyle(
-                              color: Colors.grey.shade400, fontSize: 13),
+                            color: Colors.grey.shade400,
+                            fontSize: 13,
+                          ),
                           filled: true,
                           fillColor: const Color(0xFFF5F7FA),
                           contentPadding: const EdgeInsets.symmetric(
-                              horizontal: 14, vertical: 10),
+                            horizontal: 14,
+                            vertical: 10,
+                          ),
                           border: OutlineInputBorder(
                             borderRadius: BorderRadius.circular(24),
                             borderSide: BorderSide.none,
@@ -1691,15 +1714,18 @@ class _CommentsSheetState extends State<_CommentsSheet> {
                         ),
                         child: _sending
                             ? const SizedBox(
-                          width: 18,
-                          height: 18,
-                          child: CircularProgressIndicator(
-                            strokeWidth: 2,
-                            color: Colors.white,
-                          ),
-                        )
-                            : const Icon(Icons.send_rounded,
-                            color: Colors.white, size: 18),
+                                width: 18,
+                                height: 18,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  color: Colors.white,
+                                ),
+                              )
+                            : const Icon(
+                                Icons.send_rounded,
+                                color: Colors.white,
+                                size: 18,
+                              ),
                       ),
                     ),
                   ],
