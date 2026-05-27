@@ -256,6 +256,7 @@ class _CitizenHomeScreenState extends State<CitizenHomeScreen> {
   StreamSubscription<List<AlertModel>>? _alertDotSub;
   StreamSubscription<List<Map<String, dynamic>>>? _notifDotSub;
   StreamSubscription<List<Map<String, dynamic>>>? _sosDotSub;
+  StreamSubscription<int>? _engagementDotSub; // NEW
 
   // ── Notification toast state ─────────────────────────────────────────────
   StreamSubscription<List<Map<String, dynamic>>>? _notifSub;
@@ -320,22 +321,28 @@ class _CitizenHomeScreenState extends State<CitizenHomeScreen> {
   void _listenUnreadDot() {
     final uid = FirebaseAuth.instance.currentUser?.uid;
 
-    // Community alerts: only light dot for alerts the user hasn't seen yet
-    _alertDotSub = FirestoreService.instance.alertsStream().listen((
-      alerts,
-    ) async {
-      if (uid != null) {
-        final seen = await FirestoreService.instance.getSeenAlertIds(uid);
-        _alertDotHasItems = alerts.any((a) => !seen.contains(a.id));
-      } else {
-        _alertDotHasItems = alerts.isNotEmpty;
-      }
-      if (mounted)
-        setState(
-          () => _hasUnread =
-              _alertDotHasItems || _notifDotHasItems || _sosDotHasItems,
-        );
-    });
+    // Community alerts: fetch seen IDs once upfront, then compare on every
+    // stream emit. Avoids the async-inside-listener race condition.
+    void startAlertDotStream(Set<String> seenIds) {
+      _alertDotSub = FirestoreService.instance.alertsStream().listen((alerts) {
+        _alertDotHasItems = alerts.any((a) => !seenIds.contains(a.id));
+        if (mounted) {
+          setState(
+            () => _hasUnread =
+                _alertDotHasItems ||
+                _notifDotHasItems ||
+                _sosDotHasItems ||
+                _engagementDotHasItems, // NEW
+          );
+        }
+      });
+    }
+
+    if (uid != null) {
+      FirestoreService.instance.getSeenAlertIds(uid).then(startAlertDotStream);
+    } else {
+      startAlertDotStream({});
+    }
 
     if (uid != null) {
       _notifDotSub = FirestoreService.instance
@@ -345,7 +352,10 @@ class _CitizenHomeScreenState extends State<CitizenHomeScreen> {
             if (mounted)
               setState(
                 () => _hasUnread =
-                    _alertDotHasItems || _notifDotHasItems || _sosDotHasItems,
+                    _alertDotHasItems ||
+                    _notifDotHasItems ||
+                    _sosDotHasItems ||
+                    _engagementDotHasItems, // NEW
               );
           });
 
@@ -356,7 +366,25 @@ class _CitizenHomeScreenState extends State<CitizenHomeScreen> {
             if (mounted)
               setState(
                 () => _hasUnread =
-                    _alertDotHasItems || _notifDotHasItems || _sosDotHasItems,
+                    _alertDotHasItems ||
+                    _notifDotHasItems ||
+                    _sosDotHasItems ||
+                    _engagementDotHasItems, // NEW
+              );
+          });
+
+      // NEW — engagement dot listener
+      _engagementDotSub = FirestoreService.instance
+          .unreadEngagementCountStream(uid)
+          .listen((count) {
+            _engagementDotHasItems = count > 0;
+            if (mounted)
+              setState(
+                () => _hasUnread =
+                    _alertDotHasItems ||
+                    _notifDotHasItems ||
+                    _sosDotHasItems ||
+                    _engagementDotHasItems,
               );
           });
     }
@@ -365,6 +393,54 @@ class _CitizenHomeScreenState extends State<CitizenHomeScreen> {
   bool _notifDotHasItems = false;
   bool _alertDotHasItems = false;
   bool _sosDotHasItems = false;
+  bool _engagementDotHasItems = false; // NEW
+
+  // Called when the user taps the bell. Clears dot immediately and
+  // marks everything read in Firestore so it stays cleared on next open.
+  Future<void> _markAllNotificationsRead() async {
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    if (uid == null) return;
+
+    // Clear dot instantly in UI
+    if (mounted) {
+      setState(() {
+        _hasUnread = false;
+        _alertDotHasItems = false;
+        _notifDotHasItems = false;
+        _sosDotHasItems = false;
+        _engagementDotHasItems = false; // NEW
+      });
+    }
+
+    // Mark all unread report notifications as read
+    FirestoreService.instance.citizenNotificationsStream(uid).first.then((
+      notifs,
+    ) {
+      for (final n in notifs) {
+        FirestoreService.instance.markReportNotifRead(n['id'] as String);
+      }
+    });
+
+    // Mark all unread SOS notifications as read
+    FirestoreService.instance.citizenSosNotificationsStream(uid).first.then((
+      items,
+    ) {
+      for (final s in items) {
+        FirestoreService.instance.markSosNotifRead(s['id'] as String);
+      }
+    });
+
+    // Mark all community alerts as seen
+    FirestoreService.instance.alertsStream().first.then((alerts) {
+      final ids = alerts.map((a) => a.id).toList();
+      if (ids.isNotEmpty) {
+        FirestoreService.instance.markAlertsAsSeen(uid, ids);
+      }
+    });
+
+    // NEW — mark all engagement notifications as read
+    FirestoreService.instance.markEngagementNotifsRead(uid);
+  }
 
   @override
   void dispose() {
@@ -372,6 +448,7 @@ class _CitizenHomeScreenState extends State<CitizenHomeScreen> {
     _alertDotSub?.cancel();
     _notifDotSub?.cancel();
     _sosDotSub?.cancel();
+    _engagementDotSub?.cancel(); // NEW
     super.dispose();
   }
 
@@ -594,10 +671,13 @@ class _CitizenHomeScreenState extends State<CitizenHomeScreen> {
                 Icons.notifications_outlined,
                 color: Color(0xFF37474F),
               ),
-              onPressed: () => Navigator.push(
-                context,
-                MaterialPageRoute(builder: (_) => const AlertsScreen()),
-              ),
+              onPressed: () {
+                _markAllNotificationsRead();
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (_) => const AlertsScreen()),
+                );
+              },
             ),
             Positioned(
               right: 10,
@@ -875,6 +955,7 @@ class _CitizenHomeScreenState extends State<CitizenHomeScreen> {
     return _FeedCard(
       key: ValueKey(id),
       postId: id,
+      authorUid: (data['author_id'] as String?) ?? '', // NEW
       name: name,
       text: text,
       timeStr: timeStr,
@@ -1036,6 +1117,7 @@ class _CitizenHomeScreenState extends State<CitizenHomeScreen> {
 
 class _FeedCard extends StatefulWidget {
   final String postId;
+  final String authorUid; // NEW — needed to write engagement notif
   final String name;
   final String text;
   final String timeStr;
@@ -1049,6 +1131,7 @@ class _FeedCard extends StatefulWidget {
   const _FeedCard({
     super.key,
     required this.postId,
+    required this.authorUid, // NEW
     required this.name,
     required this.text,
     required this.timeStr,
@@ -1101,6 +1184,12 @@ class _FeedCardState extends State<_FeedCard> {
     }
   }
 
+  // Returns the first 60 chars of the post body as a preview snippet.
+  String get _postSnippet {
+    final t = widget.text.trim();
+    return t.length <= 60 ? t : '${t.substring(0, 60)}…';
+  }
+
   Future<void> _toggleLike() async {
     if (_liking || _currentUid.isEmpty) return;
 
@@ -1123,11 +1212,39 @@ class _FeedCardState extends State<_FeedCard> {
           'likes': FieldValue.increment(1),
           'liked_by': FieldValue.arrayUnion([_currentUid]),
         }, SetOptions(merge: true));
+
+        // NEW — write like notification to post owner
+        final actorDoc = await FirebaseFirestore.instance
+            .collection('users')
+            .doc(_currentUid)
+            .get();
+        final actorData = actorDoc.data() ?? {};
+        final first = (actorData['first_name'] as String? ?? '').trim();
+        final last = (actorData['last_name'] as String? ?? '').trim();
+        final actorName = '$first $last'.trim().isNotEmpty
+            ? '$first $last'.trim()
+            : FirebaseAuth.instance.currentUser?.displayName ?? 'Someone';
+
+        await FirestoreService.instance.writeEngagementNotif(
+          postOwnerUid: widget.authorUid,
+          actorUid: _currentUid,
+          actorName: actorName,
+          postId: widget.postId,
+          postSnippet: _postSnippet,
+          type: 'like',
+        );
       } else {
         await ref.set({
           'likes': FieldValue.increment(-1),
           'liked_by': FieldValue.arrayRemove([_currentUid]),
         }, SetOptions(merge: true));
+
+        // NEW — remove like notification
+        await FirestoreService.instance.deleteEngagementLikeNotif(
+          postOwnerUid: widget.authorUid,
+          actorUid: _currentUid,
+          postId: widget.postId,
+        );
       }
     } catch (_) {
       // Revert optimistic update on failure
@@ -1149,6 +1266,8 @@ class _FeedCardState extends State<_FeedCard> {
       backgroundColor: Colors.transparent,
       builder: (_) => _CommentsSheet(
         postId: widget.postId,
+        authorUid: widget.authorUid, // NEW
+        postSnippet: _postSnippet, // NEW
         currentUid: _currentUid,
         onCommentAdded: () {
           if (mounted) {
@@ -1395,11 +1514,15 @@ class _FeedCardState extends State<_FeedCard> {
 
 class _CommentsSheet extends StatefulWidget {
   final String postId;
+  final String authorUid; // NEW
+  final String postSnippet; // NEW
   final String currentUid;
   final VoidCallback? onCommentAdded;
 
   const _CommentsSheet({
     required this.postId,
+    required this.authorUid, // NEW
+    required this.postSnippet, // NEW
     required this.currentUid,
     this.onCommentAdded,
   });
@@ -1463,6 +1586,17 @@ class _CommentsSheetState extends State<_CommentsSheet> {
           .collection('community_feed')
           .doc(widget.postId)
           .update({'comments': FieldValue.increment(1)});
+
+      // NEW — write comment notification to post owner
+      await FirestoreService.instance.writeEngagementNotif(
+        postOwnerUid: widget.authorUid,
+        actorUid: widget.currentUid,
+        actorName: authorName,
+        postId: widget.postId,
+        postSnippet: widget.postSnippet,
+        type: 'comment',
+        commentText: text,
+      );
 
       // Clear the input and unfocus the keyboard
       _ctrl.clear();

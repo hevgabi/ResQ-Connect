@@ -155,16 +155,17 @@ class _ModeratorProfileScreenState extends State<ModeratorProfileScreen> {
             IconButton(
               icon: const Icon(Icons.menu, color: Colors.white),
               tooltip: 'Menu',
-              onPressed: () => showHamburgerMenu(context, role: HamburgerRole.moderator),
+              onPressed: () =>
+                  showHamburgerMenu(context, role: HamburgerRole.moderator),
             ),
-          ], // Inayos na list bracket ng actions
-        ), // Inayos na panara ng AppBar
+          ],
+        ),
         body: _loading
             ? const Center(
                 child: CircularProgressIndicator(color: Color(0xFF6A1B9A)),
               )
             : _buildBody(),
-        bottomNavigationBar: const ModeratorBottomNav(currentIndex: 4),
+        bottomNavigationBar: const ModeratorBottomNav(currentIndex: 5),
       ),
     );
   }
@@ -390,8 +391,18 @@ class _ModeratorProfileScreenState extends State<ModeratorProfileScreen> {
 
   String _formatDate(DateTime dt) {
     const months = [
-      'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-      'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+      'Jan',
+      'Feb',
+      'Mar',
+      'Apr',
+      'May',
+      'Jun',
+      'Jul',
+      'Aug',
+      'Sep',
+      'Oct',
+      'Nov',
+      'Dec',
     ];
     return '${months[dt.month - 1]} ${dt.year}';
   }

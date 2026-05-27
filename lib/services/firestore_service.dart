@@ -686,23 +686,22 @@ class FirestoreService {
   /// Streams all reports belonging to a citizen that have a pending notification.
   /// Uses the existing `reports` collection so no new Firestore rules are needed.
   Stream<List<Map<String, dynamic>>> citizenNotificationsStream(String uid) {
+    // Only stream reports that are published or rejected AND unread.
+    // Filtering status here (not just in .map) prevents pending posts from
+    // counting toward the red dot while showing nothing in the screen.
     return _reports
         .where('author_id', isEqualTo: uid)
         .where('notif_read', isEqualTo: false)
+        .where('status', whereIn: ['published', 'rejected'])
         .orderBy('created_at', descending: true)
         .limit(20)
         .snapshots()
-        .map((snap) {
-          final results = <Map<String, dynamic>>[];
-          for (final doc in snap.docs) {
+        .map(
+          (snap) => snap.docs.map((doc) {
             final data = doc.data() as Map<String, dynamic>;
-            final status = data['status'] as String? ?? '';
-            if (status == 'published' || status == 'rejected') {
-              results.add({'id': doc.id, ...data});
-            }
-          }
-          return results;
-        });
+            return {'id': doc.id, ...data};
+          }).toList(),
+        );
   }
 
   /// Marks a citizen's report notification as read by setting notif_read = true.
@@ -748,6 +747,112 @@ class FirestoreService {
             return {'id': doc.id, ...data};
           }).toList();
         });
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // ENGAGEMENT NOTIFICATIONS
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  /// Writes a like or comment notification to the post owner's subcollection.
+  /// Skips writing when actor == post owner (no self-notifications).
+  /// Like writes are deduplicated — one notif per (actor, post).
+  Future<void> writeEngagementNotif({
+    required String postOwnerUid,
+    required String actorUid,
+    required String actorName,
+    required String postId,
+    required String postSnippet,
+    required String type, // 'like' | 'comment'
+    String? commentText,
+  }) async {
+    if (actorUid == postOwnerUid) return;
+
+    // Deduplicate likes: one per (actor, post)
+    if (type == 'like') {
+      final existing = await _users
+          .doc(postOwnerUid)
+          .collection('notifications')
+          .where('type', isEqualTo: 'like')
+          .where('actor_uid', isEqualTo: actorUid)
+          .where('post_id', isEqualTo: postId)
+          .limit(1)
+          .get();
+      if (existing.docs.isNotEmpty) return;
+    }
+
+    await _users.doc(postOwnerUid).collection('notifications').add({
+      'type': type,
+      'actor_uid': actorUid,
+      'actor_name': actorName,
+      'post_id': postId,
+      'post_snippet': postSnippet,
+      if (commentText != null) 'comment_text': commentText,
+      'created_at': FieldValue.serverTimestamp(),
+      'is_read': false,
+    });
+  }
+
+  /// Removes the like notification when a user un-likes a post.
+  Future<void> deleteEngagementLikeNotif({
+    required String postOwnerUid,
+    required String actorUid,
+    required String postId,
+  }) async {
+    if (actorUid == postOwnerUid) return;
+
+    final snap = await _users
+        .doc(postOwnerUid)
+        .collection('notifications')
+        .where('type', isEqualTo: 'like')
+        .where('actor_uid', isEqualTo: actorUid)
+        .where('post_id', isEqualTo: postId)
+        .limit(1)
+        .get();
+
+    for (final doc in snap.docs) {
+      await doc.reference.delete();
+    }
+  }
+
+  /// Real-time stream of engagement notifications for [uid], newest first.
+  Stream<List<Map<String, dynamic>>> engagementNotificationsStream(String uid) {
+    return _users
+        .doc(uid)
+        .collection('notifications')
+        .orderBy('created_at', descending: true)
+        .limit(50)
+        .snapshots()
+        .map(
+          (snap) => snap.docs.map((doc) {
+            final data = doc.data();
+            return {'id': doc.id, ...data};
+          }).toList(),
+        );
+  }
+
+  /// Count of unread engagement notifications — used for the red dot.
+  Stream<int> unreadEngagementCountStream(String uid) {
+    return _users
+        .doc(uid)
+        .collection('notifications')
+        .where('is_read', isEqualTo: false)
+        .snapshots()
+        .map((snap) => snap.docs.length);
+  }
+
+  /// Marks all unread engagement notifications for [uid] as read.
+  Future<void> markEngagementNotifsRead(String uid) async {
+    final snap = await _users
+        .doc(uid)
+        .collection('notifications')
+        .where('is_read', isEqualTo: false)
+        .get();
+    if (snap.docs.isEmpty) return;
+    final batch = _db.batch();
+    for (final doc in snap.docs) {
+      batch.update(doc.reference, {'is_read': true});
+    }
+    await batch.commit();
   }
 
   // ═══════════════════════════════════════════════════════════════════════════

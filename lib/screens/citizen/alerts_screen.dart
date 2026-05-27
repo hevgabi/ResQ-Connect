@@ -21,6 +21,7 @@ class _AlertsScreenState extends State<AlertsScreen>
   static const _red = Color(0xFFD7263D);
   static const _orange = Color(0xFFFF6B00);
   static const _green = Color(0xFF1FAA59);
+  static const _purple = Color(0xFF6A1B9A);
   static const _bg = Color(0xFFF5F7FA);
   static const _textSec = Color(0xFF546E7A);
 
@@ -108,8 +109,10 @@ class _AlertsScreenState extends State<AlertsScreen>
           unselectedLabelColor: _textSec,
           indicatorColor: _blue,
           indicatorWeight: 3,
-          labelStyle:
-          const TextStyle(fontWeight: FontWeight.w700, fontSize: 13),
+          labelStyle: const TextStyle(
+            fontWeight: FontWeight.w700,
+            fontSize: 13,
+          ),
           tabs: const [
             Tab(text: 'My Notifications'),
             Tab(text: 'Community Alerts'),
@@ -118,10 +121,7 @@ class _AlertsScreenState extends State<AlertsScreen>
       ),
       body: TabBarView(
         controller: _tabs,
-        children: [
-          _buildPersonalTab(),
-          _buildCommunityTab(),
-        ],
+        children: [_buildPersonalTab(), _buildCommunityTab()],
       ),
     );
   }
@@ -158,6 +158,13 @@ class _AlertsScreenState extends State<AlertsScreen>
             label: 'SOS Updates',
             color: _red,
             child: _buildSosNotifications(uid),
+          ),
+          const SizedBox(height: 20),
+          _buildSection(
+            icon: Icons.favorite_rounded,
+            label: 'Engagement',
+            color: _purple,
+            child: _buildEngagementNotifications(uid),
           ),
         ],
       ),
@@ -217,15 +224,13 @@ class _AlertsScreenState extends State<AlertsScreen>
     final isApproved = status == 'published';
     final isRead = post['notif_read'] as bool? ?? true;
     final color = isApproved ? _green : _red;
-    final icon =
-    isApproved ? Icons.check_circle_rounded : Icons.cancel_rounded;
+    final icon = isApproved ? Icons.check_circle_rounded : Icons.cancel_rounded;
     final title = isApproved ? 'Post Approved' : 'Post Rejected';
     final postLabel = _postTitle(post);
     final message = isApproved
         ? '"$postLabel" is now live on the community feed.'
         : '"$postLabel" was not approved. ${_rejectionReason(post)}';
-    final timeStr =
-    _formatTime(post['reviewed_at'] ?? post['published_at']);
+    final timeStr = _formatTime(post['reviewed_at'] ?? post['published_at']);
 
     return _notifCard(
       color: color,
@@ -236,8 +241,7 @@ class _AlertsScreenState extends State<AlertsScreen>
       isRead: isRead,
       onTap: () {
         if (!isRead) {
-          FirestoreService.instance
-              .markReportNotifRead(post['id'] as String);
+          FirestoreService.instance.markReportNotifRead(post['id'] as String);
         }
         _showDetailSheet(
           context,
@@ -246,10 +250,8 @@ class _AlertsScreenState extends State<AlertsScreen>
           title: title,
           rows: [
             _DetailRow('Post', postLabel),
-            _DetailRow('Status',
-                isApproved ? 'Published ✓' : 'Rejected ✗'),
-            if (!isApproved)
-              _DetailRow('Reason', _rejectionReason(post)),
+            _DetailRow('Status', isApproved ? 'Published ✓' : 'Rejected ✗'),
+            if (!isApproved) _DetailRow('Reason', _rejectionReason(post)),
             if (timeStr.isNotEmpty) _DetailRow('When', timeStr),
           ],
           note: isApproved
@@ -301,7 +303,7 @@ class _AlertsScreenState extends State<AlertsScreen>
             if (timeStr.isNotEmpty) _DetailRow('Submitted', timeStr),
           ],
           note:
-          'A moderator will review your post shortly. You\'ll be notified once a decision is made.',
+              'A moderator will review your post shortly. You\'ll be notified once a decision is made.',
         );
       },
     );
@@ -335,8 +337,7 @@ class _AlertsScreenState extends State<AlertsScreen>
     String message;
     String note;
 
-    final rescuerName =
-        sos['assigned_rescuer_name'] as String? ?? 'A rescuer';
+    final rescuerName = sos['assigned_rescuer_name'] as String? ?? 'A rescuer';
     final address = sos['address'] as String? ?? 'your location';
 
     switch (status) {
@@ -345,7 +346,7 @@ class _AlertsScreenState extends State<AlertsScreen>
         icon = Icons.directions_run_rounded;
         title = 'Rescuer Assigned';
         message =
-        '$rescuerName has been assigned to your SOS and is on the way.';
+            '$rescuerName has been assigned to your SOS and is on the way.';
         note = 'Please stay at $address and keep your phone accessible.';
         break;
       case 'resolved':
@@ -354,7 +355,7 @@ class _AlertsScreenState extends State<AlertsScreen>
         title = 'SOS Resolved';
         message = 'Your SOS request has been marked as resolved. Stay safe!';
         note =
-        'If you still need help, please submit a new SOS request immediately.';
+            'If you still need help, please submit a new SOS request immediately.';
         break;
       case 'cancelled':
         color = _textSec;
@@ -362,7 +363,7 @@ class _AlertsScreenState extends State<AlertsScreen>
         title = 'SOS Cancelled';
         message = 'Your SOS request was cancelled.';
         note =
-        'If this was a mistake or you still need help, submit a new SOS request.';
+            'If this was a mistake or you still need help, submit a new SOS request.';
         break;
       default:
         color = _orange;
@@ -392,12 +393,81 @@ class _AlertsScreenState extends State<AlertsScreen>
           title: title,
           rows: [
             _DetailRow('Status', status[0].toUpperCase() + status.substring(1)),
-            if (status == 'assigned')
-              _DetailRow('Rescuer', rescuerName),
+            if (status == 'assigned') _DetailRow('Rescuer', rescuerName),
             _DetailRow('Location', address),
             if (timeStr.isNotEmpty) _DetailRow('Updated', timeStr),
           ],
           note: note,
+        );
+      },
+    );
+  }
+
+  // ── Engagement Notifications ───────────────────────────────────────────────
+
+  Widget _buildEngagementNotifications(String uid) {
+    return StreamBuilder<List<Map<String, dynamic>>>(
+      stream: FirestoreService.instance.engagementNotificationsStream(uid),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return _shimmerCard();
+        }
+        final items = snapshot.data ?? [];
+        if (items.isEmpty) return _emptyChip('No engagement activity yet.');
+
+        // Mark all as read when the user views this section
+        FirestoreService.instance.markEngagementNotifsRead(uid);
+
+        return Column(
+          children: items.map((n) => _buildEngagementCard(n)).toList(),
+        );
+      },
+    );
+  }
+
+  Widget _buildEngagementCard(Map<String, dynamic> notif) {
+    final type = notif['type'] as String? ?? 'like';
+    final isRead = notif['is_read'] as bool? ?? true;
+    final actorName = notif['actor_name'] as String? ?? 'Someone';
+    final postSnippet = notif['post_snippet'] as String? ?? 'your post';
+    final commentText = notif['comment_text'] as String?;
+    final timeStr = _formatTime(notif['created_at']);
+
+    final isLike = type == 'like';
+    final color = _purple;
+    final icon = isLike ? Icons.favorite_rounded : Icons.comment_rounded;
+    final title = isLike
+        ? '$actorName liked your post'
+        : '$actorName commented';
+    final message = isLike
+        ? '"$postSnippet"'
+        : commentText != null && commentText.isNotEmpty
+        ? '"$commentText" on "$postSnippet"'
+        : 'on "$postSnippet"';
+
+    return _notifCard(
+      color: color,
+      icon: icon,
+      title: title,
+      message: message,
+      timeStr: timeStr,
+      isRead: isRead,
+      onTap: () {
+        _showDetailSheet(
+          context,
+          color: color,
+          icon: icon,
+          title: title,
+          rows: [
+            _DetailRow('From', actorName),
+            _DetailRow('Post', postSnippet),
+            if (!isLike && commentText != null && commentText.isNotEmpty)
+              _DetailRow('Comment', commentText),
+            if (timeStr.isNotEmpty) _DetailRow('When', timeStr),
+          ],
+          note: isLike
+              ? '$actorName reacted to your community post.'
+              : '$actorName left a comment on your post.',
         );
       },
     );
@@ -423,8 +493,9 @@ class _AlertsScreenState extends State<AlertsScreen>
           final uid = _uid;
           if (uid != null) {
             final ids = alerts.map((a) => a.id).toList();
-            final unseenIds =
-            ids.where((id) => !_seenAlertIds.contains(id)).toList();
+            final unseenIds = ids
+                .where((id) => !_seenAlertIds.contains(id))
+                .toList();
             if (unseenIds.isNotEmpty) {
               FirestoreService.instance.markAlertsAsSeen(uid, ids);
               // Schedule the setState outside of the build phase
@@ -468,8 +539,12 @@ class _AlertsScreenState extends State<AlertsScreen>
                 : '';
 
             return GestureDetector(
-              onTap: () => _showAlertDetailSheet(context, alert,
-                  borderColor: borderColor, iconData: iconData),
+              onTap: () => _showAlertDetailSheet(
+                context,
+                alert,
+                borderColor: borderColor,
+                iconData: iconData,
+              ),
               child: Container(
                 margin: const EdgeInsets.only(bottom: 12),
                 padding: const EdgeInsets.all(14),
@@ -479,7 +554,8 @@ class _AlertsScreenState extends State<AlertsScreen>
                       : Colors.white,
                   borderRadius: BorderRadius.circular(14),
                   border: Border(
-                      left: BorderSide(color: borderColor, width: 4)),
+                    left: BorderSide(color: borderColor, width: 4),
+                  ),
                   boxShadow: [
                     BoxShadow(
                       color: Colors.black.withValues(alpha: 0.05),
@@ -530,10 +606,11 @@ class _AlertsScreenState extends State<AlertsScreen>
                                 const SizedBox(width: 6),
                                 Container(
                                   padding: const EdgeInsets.symmetric(
-                                      horizontal: 8, vertical: 2),
+                                    horizontal: 8,
+                                    vertical: 2,
+                                  ),
                                   decoration: BoxDecoration(
-                                    color:
-                                    borderColor.withValues(alpha: 0.1),
+                                    color: borderColor.withValues(alpha: 0.1),
                                     borderRadius: BorderRadius.circular(10),
                                   ),
                                   child: Text(
@@ -564,15 +641,20 @@ class _AlertsScreenState extends State<AlertsScreen>
                             Text(
                               timeStr,
                               style: const TextStyle(
-                                  fontSize: 11, color: _textSec),
+                                fontSize: 11,
+                                color: _textSec,
+                              ),
                             ),
                           ],
                         ],
                       ),
                     ),
                     const SizedBox(width: 8),
-                    Icon(Icons.chevron_right_rounded,
-                        color: Colors.grey.shade400, size: 20),
+                    Icon(
+                      Icons.chevron_right_rounded,
+                      color: Colors.grey.shade400,
+                      size: 20,
+                    ),
                   ],
                 ),
               ),
@@ -586,13 +668,13 @@ class _AlertsScreenState extends State<AlertsScreen>
   // ─── Detail bottom sheets ──────────────────────────────────────────────────
 
   void _showDetailSheet(
-      BuildContext context, {
-        required Color color,
-        required IconData icon,
-        required String title,
-        required List<_DetailRow> rows,
-        required String note,
-      }) {
+    BuildContext context, {
+    required Color color,
+    required IconData icon,
+    required String title,
+    required List<_DetailRow> rows,
+    required String note,
+  }) {
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
@@ -608,15 +690,17 @@ class _AlertsScreenState extends State<AlertsScreen>
   }
 
   void _showAlertDetailSheet(
-      BuildContext context,
-      AlertModel alert, {
-        required Color borderColor,
-        required IconData iconData,
-      }) {
-    final timeStr =
-    alert.createdAt != null ? timeago.format(alert.createdAt!) : '';
-    final expiresStr =
-    alert.expiresAt != null ? timeago.format(alert.expiresAt!) : '';
+    BuildContext context,
+    AlertModel alert, {
+    required Color borderColor,
+    required IconData iconData,
+  }) {
+    final timeStr = alert.createdAt != null
+        ? timeago.format(alert.createdAt!)
+        : '';
+    final expiresStr = alert.expiresAt != null
+        ? timeago.format(alert.expiresAt!)
+        : '';
 
     showModalBottomSheet(
       context: context,
@@ -627,8 +711,10 @@ class _AlertsScreenState extends State<AlertsScreen>
         icon: iconData,
         title: alert.title,
         rows: [
-          _DetailRow('Severity', alert.severity[0].toUpperCase() +
-              alert.severity.substring(1)),
+          _DetailRow(
+            'Severity',
+            alert.severity[0].toUpperCase() + alert.severity.substring(1),
+          ),
           if (alert.region != null) _DetailRow('Region', alert.region!),
           if (alert.type != null) _DetailRow('Type', alert.type!),
           if (timeStr.isNotEmpty) _DetailRow('Issued', timeStr),
@@ -718,16 +804,20 @@ class _AlertsScreenState extends State<AlertsScreen>
                   ),
                   if (timeStr.isNotEmpty) ...[
                     const SizedBox(height: 4),
-                    Text(timeStr,
-                        style:
-                        const TextStyle(fontSize: 11, color: _textSec)),
+                    Text(
+                      timeStr,
+                      style: const TextStyle(fontSize: 11, color: _textSec),
+                    ),
                   ],
                 ],
               ),
             ),
             const SizedBox(width: 8),
-            Icon(Icons.chevron_right_rounded,
-                color: Colors.grey.shade400, size: 20),
+            Icon(
+              Icons.chevron_right_rounded,
+              color: Colors.grey.shade400,
+              size: 20,
+            ),
           ],
         ),
       ),
@@ -743,8 +833,7 @@ class _AlertsScreenState extends State<AlertsScreen>
         borderRadius: BorderRadius.circular(12),
         border: Border.all(color: Colors.grey.shade200),
       ),
-      child: Text(label,
-          style: const TextStyle(fontSize: 13, color: _textSec)),
+      child: Text(label, style: const TextStyle(fontSize: 13, color: _textSec)),
     );
   }
 
@@ -822,7 +911,11 @@ class _DetailSheet extends StatelessWidget {
         borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
       ),
       padding: EdgeInsets.fromLTRB(
-          24, 16, 24, MediaQuery.of(context).viewInsets.bottom + 32),
+        24,
+        16,
+        24,
+        MediaQuery.of(context).viewInsets.bottom + 32,
+      ),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -872,7 +965,7 @@ class _DetailSheet extends StatelessWidget {
 
           // Detail rows
           ...rows.map(
-                (row) => Padding(
+            (row) => Padding(
               padding: const EdgeInsets.only(bottom: 12),
               child: Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -942,7 +1035,8 @@ class _DetailSheet extends StatelessWidget {
                 padding: const EdgeInsets.symmetric(vertical: 14),
                 backgroundColor: color.withValues(alpha: 0.08),
                 shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12)),
+                  borderRadius: BorderRadius.circular(12),
+                ),
               ),
               child: Text(
                 'Close',
