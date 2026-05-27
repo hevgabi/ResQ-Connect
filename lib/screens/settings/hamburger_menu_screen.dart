@@ -14,6 +14,8 @@ import '../admin/admin_rescuers_screen.dart';
 import '../admin/admin_evac_centers_screen.dart';
 import '../admin/admin_incidents_screen.dart';
 import '../admin/admin_approvals_screen.dart';
+import '../admin/admin_broadcast_screen.dart';
+import '../admin/admin_reports_screen.dart';
 
 // =============================================================================
 // ROLE ENUM
@@ -178,16 +180,24 @@ class _HamburgerMenuScreenState extends State<HamburgerMenuScreen> {
               iconColor: const Color(0xFF0D47A1),
               title: 'Broadcast Alert',
               subtitle: 'Send emergency alerts to users',
-              badge: 'Coming Soon',
-              onTap: () => _showComingSoon(context),
+              onTap: () => Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => const AdminBroadcastScreen(),
+                ),
+              ),
             ),
             _MenuTile(
               icon: Icons.bar_chart_outlined,
               iconColor: const Color(0xFF0D47A1),
               title: 'Reports',
-              subtitle: 'View incident and rescuer reports',
-              badge: 'Coming Soon',
-              onTap: () => _showComingSoon(context),
+              subtitle: 'Incident & rescuer statistics',
+              onTap: () => Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => const AdminReportsScreen(),
+                ),
+              ),
             ),
             const SizedBox(height: 8),
           ],

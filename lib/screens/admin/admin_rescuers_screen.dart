@@ -28,8 +28,8 @@ class _AdminRescuersScreenState extends State<AdminRescuersScreen> {
   }
 
   List<Map<String, dynamic>> _applyFilters(
-    List<Map<String, dynamic>> rescuers,
-  ) {
+      List<Map<String, dynamic>> rescuers,
+      ) {
     var filtered = rescuers;
     if (_statusFilter == 'on_duty') {
       filtered = filtered.where((r) => r['is_on_duty'] == true).toList();
@@ -61,25 +61,25 @@ class _AdminRescuersScreenState extends State<AdminRescuersScreen> {
         ),
         title: _showSearch
             ? TextField(
-                controller: _searchCtrl,
-                autofocus: true,
-                style: const TextStyle(color: Colors.white),
-                decoration: const InputDecoration(
-                  hintText: 'Search by name, zone, team...',
-                  hintStyle: TextStyle(color: Colors.white54),
-                  border: InputBorder.none,
-                ),
-                onChanged: (v) =>
-                    setState(() => _searchQuery = v.toLowerCase()),
-              )
+          controller: _searchCtrl,
+          autofocus: true,
+          style: const TextStyle(color: Colors.white),
+          decoration: const InputDecoration(
+            hintText: 'Search by name, zone, team...',
+            hintStyle: TextStyle(color: Colors.white54),
+            border: InputBorder.none,
+          ),
+          onChanged: (v) =>
+              setState(() => _searchQuery = v.toLowerCase()),
+        )
             : const Text(
-                'Rescuers',
-                style: TextStyle(
-                  color: Colors.white,
-                  fontWeight: FontWeight.bold,
-                  fontSize: 20,
-                ),
-              ),
+          'Rescuers',
+          style: TextStyle(
+            color: Colors.white,
+            fontWeight: FontWeight.bold,
+            fontSize: 20,
+          ),
+        ),
         actions: [
           IconButton(
             icon: Icon(
@@ -190,7 +190,7 @@ class _AdminRescuersScreenState extends State<AdminRescuersScreen> {
                 return ListView.separated(
                   padding: const EdgeInsets.all(16),
                   itemCount: filtered.length,
-                  separatorBuilder: (_, __) => const SizedBox(height: 10),
+                  separatorBuilder: (_, _) => const SizedBox(height: 10),
                   itemBuilder: (context, index) {
                     return _RescuerCard(
                       rescuer: filtered[index],
@@ -426,7 +426,7 @@ class _AdminReviewsTab extends StatelessWidget {
         // Compute overall stats
         final total = docs.fold<int>(
           0,
-          (s, d) => s + ((d.data() as Map)['stars'] as int? ?? 0),
+              (s, d) => s + ((d.data() as Map)['stars'] as int? ?? 0),
         );
         final avg = total / docs.length;
         final starCounts = List.filled(5, 0);
@@ -471,7 +471,7 @@ class _AdminReviewsTab extends StatelessWidget {
                         Row(
                           children: List.generate(
                             5,
-                            (i) => Icon(
+                                (i) => Icon(
                               i < avg.round()
                                   ? Icons.star_rounded
                                   : Icons.star_outline_rounded,
@@ -580,7 +580,7 @@ class _AdminReviewsTab extends StatelessWidget {
                         children: [
                           ...List.generate(
                             5,
-                            (i) => Icon(
+                                (i) => Icon(
                               i < stars
                                   ? Icons.star_rounded
                                   : Icons.star_outline_rounded,
@@ -668,7 +668,7 @@ class _AdminRatingPill extends StatelessWidget {
         final docs = snap.data!.docs;
         final total = docs.fold<int>(
           0,
-          (s, d) => s + ((d.data() as Map)['stars'] as int? ?? 0),
+              (s, d) => s + ((d.data() as Map)['stars'] as int? ?? 0),
         );
         final avg = total / docs.length;
         return Container(
@@ -846,14 +846,14 @@ class _CardRatingRow extends StatelessWidget {
         final docs = snap.data!.docs;
         final total = docs.fold<int>(
           0,
-          (s, d) => s + ((d.data() as Map)['stars'] as int? ?? 0),
+              (s, d) => s + ((d.data() as Map)['stars'] as int? ?? 0),
         );
         final avg = total / docs.length;
         return Row(
           children: [
             ...List.generate(
               5,
-              (i) => Icon(
+                  (i) => Icon(
                 i < avg.round()
                     ? Icons.star_rounded
                     : Icons.star_outline_rounded,
@@ -984,8 +984,8 @@ class _RescuerListSkeleton extends StatelessWidget {
     return ListView.separated(
       padding: const EdgeInsets.all(16),
       itemCount: 5,
-      separatorBuilder: (_, __) => const SizedBox(height: 10),
-      itemBuilder: (_, __) => Container(
+      separatorBuilder: (_, _) => const SizedBox(height: 10),
+      itemBuilder: (_, _) => Container(
         padding: const EdgeInsets.all(14),
         decoration: BoxDecoration(
           color: Colors.white,

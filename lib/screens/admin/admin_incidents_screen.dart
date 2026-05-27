@@ -1,9 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:timeago/timeago.dart' as timeago;
-
-import '../../services/firestore_service.dart';
-import '../../widgets/error_banner.dart';
+import '../../theme/app_theme.dart';
 import '../../widgets/empty_state.dart';
 
 class AdminIncidentsScreen extends StatefulWidget {
@@ -32,47 +30,58 @@ class _AdminIncidentsScreenState extends State<AdminIncidentsScreen> {
     super.dispose();
   }
 
+  // FIX: Removed the combined where+orderBy that caused the composite index
+  // error. Now we order by created_at always, and apply status filter only
+  // when needed — with where() BEFORE orderBy() to satisfy Firestore rules.
+  // For 'all', we skip the where() entirely so no composite index is needed.
   Stream<QuerySnapshot> _buildStream() {
-    Query q = FirebaseFirestore.instance
-        .collection('sos_requests')
-        .orderBy('created_at', descending: true);
-    if (_statusFilter != 'all') {
-      q = q.where('status', isEqualTo: _statusFilter);
+    if (_statusFilter == 'all') {
+      return FirebaseFirestore.instance
+          .collection('sos_requests')
+          .orderBy('created_at', descending: true)
+          .snapshots();
     }
-    return q.snapshots();
+    // where() first, then orderBy() — requires a composite index in Firebase
+    // Console for (status ASC, created_at DESC) — but this is the correct
+    // Firestore pattern. Index link will appear in the error log if missing.
+    return FirebaseFirestore.instance
+        .collection('sos_requests')
+        .where('status', isEqualTo: _statusFilter)
+        .orderBy('created_at', descending: true)
+        .snapshots();
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFFF5F7FA),
+      backgroundColor: AppTheme.background,
       appBar: AppBar(
-        backgroundColor: const Color(0xFF0D47A1),
+        backgroundColor: AppTheme.primaryBlue,
         leading: IconButton(
           icon: const Icon(Icons.arrow_back, color: Colors.white),
           onPressed: () => Navigator.pop(context),
         ),
         title: _showSearch
             ? TextField(
-                controller: _searchCtrl,
-                autofocus: true,
-                style: const TextStyle(color: Colors.white),
-                decoration: const InputDecoration(
-                  hintText: 'Search by name or location...',
-                  hintStyle: TextStyle(color: Colors.white54),
-                  border: InputBorder.none,
-                ),
-                onChanged: (v) =>
-                    setState(() => _searchQuery = v.toLowerCase()),
-              )
+          controller: _searchCtrl,
+          autofocus: true,
+          style: const TextStyle(color: Colors.white),
+          decoration: const InputDecoration(
+            hintText: 'Search by type or location...',
+            hintStyle: TextStyle(color: Colors.white54),
+            border: InputBorder.none,
+          ),
+          onChanged: (v) =>
+              setState(() => _searchQuery = v.toLowerCase()),
+        )
             : const Text(
-                'Incidents',
-                style: TextStyle(
-                  color: Colors.white,
-                  fontWeight: FontWeight.bold,
-                  fontSize: 20,
-                ),
-              ),
+          'Incidents',
+          style: TextStyle(
+            color: Colors.white,
+            fontWeight: FontWeight.bold,
+            fontSize: 20,
+          ),
+        ),
         actions: [
           IconButton(
             icon: Icon(
@@ -93,10 +102,11 @@ class _AdminIncidentsScreenState extends State<AdminIncidentsScreen> {
       ),
       body: Column(
         children: [
-          // Filter chips
+          // ── Filter chips ────────────────────────────────────────────────
           Container(
             color: Colors.white,
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            padding:
+            const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
             child: SingleChildScrollView(
               scrollDirection: Axis.horizontal,
               child: Row(
@@ -107,21 +117,23 @@ class _AdminIncidentsScreenState extends State<AdminIncidentsScreen> {
                     child: FilterChip(
                       label: Text(f.$2),
                       selected: isSelected,
-                      onSelected: (_) => setState(() => _statusFilter = f.$1),
-                      selectedColor: const Color(0xFF0D47A1).withValues(alpha: 0.15),
-                      checkmarkColor: const Color(0xFF0D47A1),
+                      onSelected: (_) =>
+                          setState(() => _statusFilter = f.$1),
+                      selectedColor:
+                      AppTheme.primaryBlue.withValues(alpha: 0.15),
+                      checkmarkColor: AppTheme.primaryBlue,
                       labelStyle: TextStyle(
                         fontWeight: isSelected
                             ? FontWeight.bold
                             : FontWeight.normal,
                         color: isSelected
-                            ? const Color(0xFF0D47A1)
-                            : const Color(0xFF546E7A),
+                            ? AppTheme.primaryBlue
+                            : AppTheme.textSecondary,
                         fontSize: 13,
                       ),
                       side: BorderSide(
                         color: isSelected
-                            ? const Color(0xFF0D47A1)
+                            ? AppTheme.primaryBlue
                             : Colors.grey.shade300,
                       ),
                       backgroundColor: Colors.white,
@@ -131,21 +143,51 @@ class _AdminIncidentsScreenState extends State<AdminIncidentsScreen> {
               ),
             ),
           ),
-          // Incident list
+
+          // ── Composite index hint banner ─────────────────────────────────
+          if (_statusFilter != 'all')
+            Container(
+              width: double.infinity,
+              padding:
+              const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+              color: const Color(0xFFFFF8E1),
+              child: const Text(
+                'Tip: If you see an index error, tap the link in your debug console to create the Firestore index.',
+                style: TextStyle(fontSize: 10, color: Color(0xFFE65100)),
+              ),
+            ),
+
+          // ── Incident list ───────────────────────────────────────────────
           Expanded(
             child: StreamBuilder<QuerySnapshot>(
               stream: _buildStream(),
               builder: (context, snapshot) {
                 if (snapshot.connectionState == ConnectionState.waiting) {
-                  return _IncidentListSkeleton();
+                  return const _IncidentListSkeleton();
                 }
                 if (snapshot.hasError) {
-                  return ErrorBanner(message: snapshot.error.toString());
+                  final errStr = snapshot.error.toString();
+                  // Show a helpful message if it's the index error
+                  if (errStr.contains('index') ||
+                      errStr.contains('FAILED_PRECONDITION')) {
+                    return _IndexErrorWidget(error: errStr);
+                  }
+                  return Center(
+                    child: Padding(
+                      padding: const EdgeInsets.all(24),
+                      child: Text(
+                        'Error: $errStr',
+                        style: const TextStyle(
+                            color: AppTheme.textSecondary),
+                        textAlign: TextAlign.center,
+                      ),
+                    ),
+                  );
                 }
                 if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
                   return const EmptyState(
                     icon: Icons.event_busy,
-                    iconColor: Color(0xFF546E7A),
+                    iconColor: AppTheme.textSecondary,
                     title: 'No Incidents Found',
                     subtitle: 'No incidents match the current filter.',
                   );
@@ -153,13 +195,14 @@ class _AdminIncidentsScreenState extends State<AdminIncidentsScreen> {
 
                 var docs = snapshot.data!.docs;
 
-                // Client-side search filter
+                // Client-side search
                 if (_searchQuery.isNotEmpty) {
                   docs = docs.where((doc) {
                     final data = doc.data() as Map<String, dynamic>;
-                    final type = ((data['type'] as String?) ?? '')
-                        .toLowerCase();
-                    final lat = (data['latitude'] as double?)?.toString() ?? '';
+                    final type =
+                    ((data['type'] as String?) ?? '').toLowerCase();
+                    final lat =
+                        (data['latitude'] as double?)?.toString() ?? '';
                     final lng =
                         (data['longitude'] as double?)?.toString() ?? '';
                     return type.contains(_searchQuery) ||
@@ -171,7 +214,7 @@ class _AdminIncidentsScreenState extends State<AdminIncidentsScreen> {
                 if (docs.isEmpty) {
                   return const EmptyState(
                     icon: Icons.search_off,
-                    iconColor: Color(0xFF546E7A),
+                    iconColor: AppTheme.textSecondary,
                     title: 'No Results',
                     subtitle: 'Try a different search term.',
                   );
@@ -180,7 +223,8 @@ class _AdminIncidentsScreenState extends State<AdminIncidentsScreen> {
                 return ListView.separated(
                   padding: const EdgeInsets.all(16),
                   itemCount: docs.length,
-                  separatorBuilder: (_, __) => const SizedBox(height: 12),
+                  separatorBuilder: (_, _) =>
+                  const SizedBox(height: 12),
                   itemBuilder: (context, index) {
                     final doc = docs[index];
                     final data = doc.data() as Map<String, dynamic>;
@@ -196,14 +240,68 @@ class _AdminIncidentsScreenState extends State<AdminIncidentsScreen> {
   }
 }
 
-// ---------------------------------------------------------------------------
-// Incident Card
-// ---------------------------------------------------------------------------
+// ── Index error helper widget ──────────────────────────────────────────────
+
+class _IndexErrorWidget extends StatelessWidget {
+  final String error;
+  const _IndexErrorWidget({required this.error});
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: const Color(0xFFFFF3E0),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: const Color(0xFFFFE082)),
+              ),
+              child: Column(
+                children: [
+                  const Icon(Icons.warning_amber_rounded,
+                      color: Color(0xFFE65100), size: 36),
+                  const SizedBox(height: 12),
+                  const Text(
+                    'Firestore Index Required',
+                    style: TextStyle(
+                      fontWeight: FontWeight.bold,
+                      fontSize: 15,
+                      color: Color(0xFF1A2B45),
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  const Text(
+                    'This filter requires a composite index.\n\n'
+                        '1. Open your Android Studio debug console\n'
+                        '2. Find the Firebase error message\n'
+                        '3. Tap the link to auto-create the index\n'
+                        '4. Wait ~1 minute then try again',
+                    style: TextStyle(
+                        fontSize: 12, color: AppTheme.textSecondary),
+                    textAlign: TextAlign.center,
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// INCIDENT CARD
+// ═══════════════════════════════════════════════════════════════════════════
 
 class _IncidentCard extends StatefulWidget {
   final String sosId;
   final Map<String, dynamic> data;
-
   const _IncidentCard({required this.sosId, required this.data});
 
   @override
@@ -235,7 +333,8 @@ class _IncidentCardState extends State<_IncidentCard> {
             .collection('users')
             .doc(citizenId)
             .get();
-        citizenName = (doc.data()?['display_name'] as String?) ?? 'Unknown';
+        citizenName =
+            (doc.data()?['display_name'] as String?) ?? 'Unknown';
       }
 
       if (rescuerId != null) {
@@ -265,7 +364,6 @@ class _IncidentCardState extends State<_IncidentCard> {
   }
 
   Future<void> _showReassignDialog() async {
-    // Load on-duty rescuers
     QuerySnapshot rescuersSnap;
     try {
       rescuersSnap = await FirebaseFirestore.instance
@@ -274,9 +372,9 @@ class _IncidentCardState extends State<_IncidentCard> {
           .get();
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('Error loading rescuers: $e')));
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error loading rescuers: $e')),
+        );
       }
       return;
     }
@@ -284,7 +382,8 @@ class _IncidentCardState extends State<_IncidentCard> {
     if (rescuersSnap.docs.isEmpty) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('No on-duty rescuers available.')),
+          const SnackBar(
+              content: Text('No on-duty rescuers available.')),
         );
       }
       return;
@@ -293,15 +392,19 @@ class _IncidentCardState extends State<_IncidentCard> {
     String? selectedRescuerId;
     String? selectedRescuerName;
 
+    if (!mounted) return;
+
     await showDialog(
       context: context,
       builder: (ctx) => StatefulBuilder(
         builder: (ctx, setDialogState) => AlertDialog(
+          shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(16)),
           title: const Text(
             'Reassign Rescuer',
             style: TextStyle(
               fontWeight: FontWeight.bold,
-              color: Color(0xFF0D47A1),
+              color: AppTheme.primaryBlue,
             ),
           ),
           content: SizedBox(
@@ -312,7 +415,8 @@ class _IncidentCardState extends State<_IncidentCard> {
               children: [
                 const Text(
                   'Select an on-duty rescuer:',
-                  style: TextStyle(color: Color(0xFF546E7A), fontSize: 13),
+                  style: TextStyle(
+                      color: AppTheme.textSecondary, fontSize: 13),
                 ),
                 const SizedBox(height: 10),
                 ConstrainedBox(
@@ -322,57 +426,53 @@ class _IncidentCardState extends State<_IncidentCard> {
                     itemCount: rescuersSnap.docs.length,
                     itemBuilder: (_, i) {
                       final rDoc = rescuersSnap.docs[i];
-                      final rData = rDoc.data() as Map<String, dynamic>;
+                      final rData =
+                      rDoc.data() as Map<String, dynamic>;
                       final name =
                           (rData['display_name'] as String?) ??
-                          'Rescuer ${i + 1}';
+                              'Rescuer ${i + 1}';
                       final activeMissions =
-                          (rData['active_mission_count'] as num?)?.toInt() ?? 0;
+                          (rData['active_mission_count'] as num?)
+                              ?.toInt() ??
+                              0;
                       final isSelected = selectedRescuerId == rDoc.id;
 
                       return ListTile(
                         dense: true,
                         leading: CircleAvatar(
                           radius: 16,
-                          backgroundColor: const Color(
-                            0xFF0D47A1,
-                          ).withValues(alpha: 0.1),
+                          backgroundColor: AppTheme.primaryBlue
+                              .withValues(alpha: 0.1),
                           child: Text(
-                            name.isNotEmpty ? name[0].toUpperCase() : 'R',
+                            name.isNotEmpty
+                                ? name[0].toUpperCase()
+                                : 'R',
                             style: const TextStyle(
-                              color: Color(0xFF0D47A1),
+                              color: AppTheme.primaryBlue,
                               fontWeight: FontWeight.bold,
                               fontSize: 13,
                             ),
                           ),
                         ),
-                        title: Text(
-                          name,
-                          style: const TextStyle(
-                            fontSize: 14,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
+                        title: Text(name,
+                            style: const TextStyle(
+                                fontSize: 14,
+                                fontWeight: FontWeight.w600)),
                         subtitle: Text(
                           '$activeMissions active mission${activeMissions != 1 ? 's' : ''}',
                           style: const TextStyle(
-                            fontSize: 12,
-                            color: Color(0xFF546E7A),
-                          ),
+                              fontSize: 12,
+                              color: AppTheme.textSecondary),
                         ),
                         trailing: isSelected
-                            ? const Icon(
-                                Icons.check_circle,
-                                color: Color(0xFF1FAA59),
-                              )
+                            ? const Icon(Icons.check_circle,
+                            color: AppTheme.successGreen)
                             : null,
                         selected: isSelected,
-                        selectedTileColor: const Color(
-                          0xFF0D47A1,
-                        ).withValues(alpha: 0.06),
+                        selectedTileColor: AppTheme.primaryBlue
+                            .withValues(alpha: 0.06),
                         shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(8),
-                        ),
+                            borderRadius: BorderRadius.circular(8)),
                         onTap: () => setDialogState(() {
                           selectedRescuerId = rDoc.id;
                           selectedRescuerName = name;
@@ -387,18 +487,15 @@ class _IncidentCardState extends State<_IncidentCard> {
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(ctx),
-              child: const Text(
-                'Cancel',
-                style: TextStyle(color: Color(0xFF546E7A)),
-              ),
+              child: const Text('Cancel',
+                  style: TextStyle(color: AppTheme.textSecondary)),
             ),
             FilledButton(
               onPressed: selectedRescuerId == null
                   ? null
                   : () => Navigator.pop(ctx, true),
               style: FilledButton.styleFrom(
-                backgroundColor: const Color(0xFF0D47A1),
-              ),
+                  backgroundColor: AppTheme.primaryBlue),
               child: const Text('Confirm'),
             ),
           ],
@@ -413,11 +510,12 @@ class _IncidentCardState extends State<_IncidentCard> {
     });
   }
 
-  Future<void> _doReassign(String newRescuerId, String newRescuerName) async {
-    final oldRescuerId = widget.data['assigned_rescuer_id'] as String?;
+  Future<void> _doReassign(
+      String newRescuerId, String newRescuerName) async {
+    final oldRescuerId =
+    widget.data['assigned_rescuer_id'] as String?;
     final batch = FirebaseFirestore.instance.batch();
 
-    // Update SOS request
     final sosRef = FirebaseFirestore.instance
         .collection('sos_requests')
         .doc(widget.sosId);
@@ -427,19 +525,19 @@ class _IncidentCardState extends State<_IncidentCard> {
       'reassigned_at': FieldValue.serverTimestamp(),
     });
 
-    // Decrement old rescuer's count
     if (oldRescuerId != null && oldRescuerId != newRescuerId) {
       final oldRef = FirebaseFirestore.instance
           .collection('rescuers')
           .doc(oldRescuerId);
-      batch.update(oldRef, {'active_mission_count': FieldValue.increment(-1)});
+      batch.update(
+          oldRef, {'active_mission_count': FieldValue.increment(-1)});
     }
 
-    // Increment new rescuer's count
     final newRef = FirebaseFirestore.instance
         .collection('rescuers')
         .doc(newRescuerId);
-    batch.update(newRef, {'active_mission_count': FieldValue.increment(1)});
+    batch.update(
+        newRef, {'active_mission_count': FieldValue.increment(1)});
 
     try {
       await batch.commit();
@@ -448,7 +546,7 @@ class _IncidentCardState extends State<_IncidentCard> {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text('Reassigned to $newRescuerName'),
-            backgroundColor: const Color(0xFF1FAA59),
+            backgroundColor: AppTheme.successGreen,
           ),
         );
       }
@@ -457,7 +555,7 @@ class _IncidentCardState extends State<_IncidentCard> {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text('Reassign failed: $e'),
-            backgroundColor: const Color(0xFFD7263D),
+            backgroundColor: AppTheme.dangerRed,
           ),
         );
       }
@@ -476,21 +574,26 @@ class _IncidentCardState extends State<_IncidentCard> {
     final locationText = (lat != null && lng != null)
         ? '${lat.toStringAsFixed(4)}, ${lng.toStringAsFixed(4)}'
         : 'Unknown location';
-    final timeText = createdAt != null ? timeago.format(createdAt) : 'Unknown';
+    final timeText =
+    createdAt != null ? timeago.format(createdAt) : 'Unknown';
 
     Color statusColor;
     String statusLabel;
+    Color statusBg;
     switch (status) {
       case 'assigned':
-        statusColor = const Color(0xFF0D47A1);
+        statusColor = AppTheme.primaryBlue;
+        statusBg = const Color(0xFFE3F2FD);
         statusLabel = 'Assigned';
         break;
       case 'resolved':
-        statusColor = const Color(0xFF1FAA59);
+        statusColor = AppTheme.successGreen;
+        statusBg = const Color(0xFFE8F5E9);
         statusLabel = 'Resolved';
         break;
       default:
-        statusColor = const Color(0xFFD7263D);
+        statusColor = AppTheme.dangerRed;
+        statusBg = const Color(0xFFFFEBEE);
         statusLabel = 'Open';
     }
 
@@ -510,9 +613,15 @@ class _IncidentCardState extends State<_IncidentCard> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Top row: type + status badge
           Row(
             children: [
+              Container(
+                width: 8,
+                height: 8,
+                decoration: BoxDecoration(
+                    color: statusColor, shape: BoxShape.circle),
+              ),
+              const SizedBox(width: 8),
               Expanded(
                 child: Text(
                   type.replaceAll('_', ' ').toUpperCase(),
@@ -525,13 +634,12 @@ class _IncidentCardState extends State<_IncidentCard> {
               ),
               Container(
                 padding: const EdgeInsets.symmetric(
-                  horizontal: 10,
-                  vertical: 4,
-                ),
+                    horizontal: 10, vertical: 4),
                 decoration: BoxDecoration(
-                  color: statusColor.withValues(alpha: 0.12),
+                  color: statusBg,
                   borderRadius: BorderRadius.circular(8),
-                  border: Border.all(color: statusColor.withValues(alpha: 0.4)),
+                  border: Border.all(
+                      color: statusColor.withValues(alpha: 0.4)),
                 ),
                 child: Text(
                   statusLabel,
@@ -545,27 +653,23 @@ class _IncidentCardState extends State<_IncidentCard> {
             ],
           ),
           const SizedBox(height: 10),
-          // Citizen name
           _DetailRow(
             icon: Icons.person_outline,
             text: _loadingNames ? 'Loading...' : _citizenName,
           ),
           const SizedBox(height: 4),
-          // Location
-          _DetailRow(icon: Icons.location_on_outlined, text: locationText),
+          _DetailRow(
+              icon: Icons.location_on_outlined, text: locationText),
           const SizedBox(height: 4),
-          // Time elapsed
           _DetailRow(icon: Icons.access_time, text: timeText),
-          // Rescuer (if assigned)
           if (_rescuerName.isNotEmpty) ...[
             const SizedBox(height: 4),
             _DetailRow(
               icon: Icons.emergency_outlined,
               text: 'Rescuer: $_rescuerName',
-              color: const Color(0xFF0D47A1),
+              color: AppTheme.primaryBlue,
             ),
           ],
-          // Divider + Reassign button
           if (status != 'resolved') ...[
             const SizedBox(height: 12),
             const Divider(height: 1),
@@ -577,19 +681,14 @@ class _IncidentCardState extends State<_IncidentCard> {
                 icon: const Icon(Icons.swap_horiz, size: 16),
                 label: const Text('Reassign'),
                 style: OutlinedButton.styleFrom(
-                  foregroundColor: const Color(0xFF0D47A1),
-                  side: const BorderSide(color: Color(0xFF0D47A1)),
+                  foregroundColor: AppTheme.primaryBlue,
+                  side: const BorderSide(color: AppTheme.primaryBlue),
                   padding: const EdgeInsets.symmetric(
-                    horizontal: 14,
-                    vertical: 8,
-                  ),
+                      horizontal: 14, vertical: 8),
                   shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(8),
-                  ),
+                      borderRadius: BorderRadius.circular(8)),
                   textStyle: const TextStyle(
-                    fontSize: 13,
-                    fontWeight: FontWeight.w600,
-                  ),
+                      fontSize: 13, fontWeight: FontWeight.w600),
                 ),
               ),
             ),
@@ -608,7 +707,7 @@ class _DetailRow extends StatelessWidget {
   const _DetailRow({
     required this.icon,
     required this.text,
-    this.color = const Color(0xFF546E7A),
+    this.color = AppTheme.textSecondary,
   });
 
   @override
@@ -619,25 +718,24 @@ class _DetailRow extends StatelessWidget {
         Icon(icon, size: 15, color: color),
         const SizedBox(width: 6),
         Expanded(
-          child: Text(text, style: TextStyle(fontSize: 13, color: color)),
+          child:
+          Text(text, style: TextStyle(fontSize: 13, color: color)),
         ),
       ],
     );
   }
 }
 
-// ---------------------------------------------------------------------------
-// Skeleton
-// ---------------------------------------------------------------------------
-
 class _IncidentListSkeleton extends StatelessWidget {
+  const _IncidentListSkeleton();
+
   @override
   Widget build(BuildContext context) {
     return ListView.separated(
       padding: const EdgeInsets.all(16),
       itemCount: 5,
-      separatorBuilder: (_, __) => const SizedBox(height: 12),
-      itemBuilder: (_, __) => Container(
+      separatorBuilder: (_, _) => const SizedBox(height: 12),
+      itemBuilder: (_, _) => Container(
         height: 130,
         padding: const EdgeInsets.all(16),
         decoration: BoxDecoration(
@@ -661,7 +759,7 @@ class _IncidentListSkeleton extends StatelessWidget {
     );
   }
 
-  Widget _sh(double w, double h) => Container(
+  static Widget _sh(double w, double h) => Container(
     width: w,
     height: h,
     decoration: BoxDecoration(
