@@ -8,6 +8,7 @@ import '../../widgets/empty_state.dart';
 import '../../screens/settings/hamburger_menu_screen.dart';
 import 'admin_incidents_screen.dart';
 import 'admin_approvals_screen.dart';
+import 'admin_teams_screen.dart';
 
 class AdminOverviewScreen extends StatelessWidget {
   const AdminOverviewScreen({super.key});
@@ -25,7 +26,7 @@ class AdminOverviewScreen extends StatelessWidget {
             context,
             MaterialPageRoute(
               builder: (_) =>
-              const HamburgerMenuScreen(role: HamburgerRole.admin),
+                  const HamburgerMenuScreen(role: HamburgerRole.admin),
             ),
           ),
         ),
@@ -42,10 +43,7 @@ class AdminOverviewScreen extends StatelessWidget {
             ),
             Text(
               _formattedDate(),
-              style: const TextStyle(
-                color: Colors.white60,
-                fontSize: 11,
-              ),
+              style: const TextStyle(color: Colors.white60, fontSize: 11),
             ),
           ],
         ),
@@ -120,6 +118,7 @@ class AdminOverviewScreen extends StatelessWidget {
                       _RescuersActiveCard(),
                       _EvacSlotsFreeCard(),
                       _PendingApprovalsCard(),
+                      _PendingTeamsCard(),
                     ],
                   ),
                   const SizedBox(height: 24),
@@ -178,8 +177,18 @@ class AdminOverviewScreen extends StatelessWidget {
     final now = DateTime.now();
     const days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
     const months = [
-      'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-      'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'
+      'Jan',
+      'Feb',
+      'Mar',
+      'Apr',
+      'May',
+      'Jun',
+      'Jul',
+      'Aug',
+      'Sep',
+      'Oct',
+      'Nov',
+      'Dec',
     ];
     final day = days[now.weekday - 1];
     final month = months[now.month - 1];
@@ -218,13 +227,13 @@ class _StatusBanner extends StatelessWidget {
               textColor = const Color(0xFFB71C1C);
               dotColor = const Color(0xFFE53935);
               message =
-              '$activeSOS active SOS request${activeSOS > 1 ? 's' : ''} need attention';
+                  '$activeSOS active SOS request${activeSOS > 1 ? 's' : ''} need attention';
             } else if (pending > 0) {
               bannerColor = const Color(0xFFFFF8E1);
               textColor = const Color(0xFFE65100);
               dotColor = const Color(0xFFF57F17);
               message =
-              '$pending pending registration${pending > 1 ? 's' : ''} need review';
+                  '$pending pending registration${pending > 1 ? 's' : ''} need review';
             } else {
               bannerColor = const Color(0xFFE8F5E9);
               textColor = const Color(0xFF2E7D32);
@@ -321,21 +330,21 @@ class _KpiCard extends StatelessWidget {
             children: [
               isLoading
                   ? Container(
-                width: 50,
-                height: 26,
-                decoration: BoxDecoration(
-                  color: Colors.grey.shade200,
-                  borderRadius: BorderRadius.circular(6),
-                ),
-              )
+                      width: 50,
+                      height: 26,
+                      decoration: BoxDecoration(
+                        color: Colors.grey.shade200,
+                        borderRadius: BorderRadius.circular(6),
+                      ),
+                    )
                   : Text(
-                value,
-                style: TextStyle(
-                  fontSize: 24,
-                  fontWeight: FontWeight.bold,
-                  color: color,
-                ),
-              ),
+                      value,
+                      style: TextStyle(
+                        fontSize: 24,
+                        fontWeight: FontWeight.bold,
+                        color: color,
+                      ),
+                    ),
               const SizedBox(height: 2),
               Text(
                 label,
@@ -378,9 +387,7 @@ class _ActiveSOSCard extends StatelessWidget {
           value: snapshot.hasData ? count.toString() : '—',
           subtitle: count > 0 ? '● Needs attention' : '● All clear',
           icon: Icons.sos_outlined,
-          color: count > 0
-              ? const Color(0xFFD7263D)
-              : const Color(0xFF1FAA59),
+          color: count > 0 ? const Color(0xFFD7263D) : const Color(0xFF1FAA59),
           isLoading: snapshot.connectionState == ConnectionState.waiting,
         );
       },
@@ -394,9 +401,7 @@ class _RescuersActiveCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return StreamBuilder<QuerySnapshot>(
-      stream: FirebaseFirestore.instance
-          .collection('rescuers')
-          .snapshots(),
+      stream: FirebaseFirestore.instance.collection('rescuers').snapshots(),
       builder: (context, snapshot) {
         int onDuty = 0;
         int offDuty = 0;
@@ -443,8 +448,7 @@ class _EvacSlotsFreeCard extends StatelessWidget {
           for (final doc in snapshot.data!.docs) {
             final data = doc.data() as Map<String, dynamic>;
             final total = (data['capacity'] as num?)?.toInt() ?? 0;
-            final occupied =
-                (data['current_occupancy'] as num?)?.toInt() ?? 0;
+            final occupied = (data['current_occupancy'] as num?)?.toInt() ?? 0;
             freeSlots += (total - occupied).clamp(0, total);
             totalSlots += total;
           }
@@ -480,9 +484,7 @@ class _PendingApprovalsCard extends StatelessWidget {
         return GestureDetector(
           onTap: () => Navigator.push(
             context,
-            MaterialPageRoute(
-              builder: (_) => const AdminApprovalsScreen(),
-            ),
+            MaterialPageRoute(builder: (_) => const AdminApprovalsScreen()),
           ),
           child: _KpiCard(
             label: 'Pending Approvals',
@@ -493,6 +495,35 @@ class _PendingApprovalsCard extends StatelessWidget {
                 ? const Color(0xFFE65100)
                 : const Color(0xFF1FAA59),
             isLoading: snapshot.connectionState == ConnectionState.waiting,
+          ),
+        );
+      },
+    );
+  }
+}
+
+// ─── Pending Teams KPI Card ────────────────────────────────────────────────────
+
+class _PendingTeamsCard extends StatelessWidget {
+  const _PendingTeamsCard();
+
+  @override
+  Widget build(BuildContext context) {
+    return StreamBuilder<int>(
+      stream: FirestoreService.instance.pendingTeamsCountStream(),
+      builder: (context, snap) {
+        final count = snap.data ?? 0;
+        return GestureDetector(
+          onTap: () => Navigator.push(
+            context,
+            MaterialPageRoute(builder: (_) => const AdminTeamsScreen()),
+          ),
+          child: _KpiCard(
+            label: 'Team Applications',
+            value: count.toString(),
+            icon: Icons.groups,
+            color: const Color(0xFF1565C0),
+            subtitle: 'pending review',
           ),
         );
       },
@@ -517,7 +548,7 @@ class _LiveIncidentsList extends StatelessWidget {
           return Column(
             children: List.generate(
               3,
-                  (_) => Padding(
+              (_) => Padding(
                 padding: const EdgeInsets.only(bottom: 10),
                 child: _IncidentRowSkeleton(),
               ),
@@ -566,8 +597,7 @@ class _IncidentRow extends StatelessWidget {
     final locationText = (lat != null && lng != null)
         ? '${lat.toStringAsFixed(4)}, ${lng.toStringAsFixed(4)}'
         : 'Unknown location';
-    final timeText =
-    createdAt != null ? timeago.format(createdAt) : 'Unknown';
+    final timeText = createdAt != null ? timeago.format(createdAt) : 'Unknown';
 
     Color dotColor;
     String priorityLabel;
@@ -609,10 +639,7 @@ class _IncidentRow extends StatelessWidget {
           Container(
             width: 8,
             height: 8,
-            decoration: BoxDecoration(
-              color: dotColor,
-              shape: BoxShape.circle,
-            ),
+            decoration: BoxDecoration(color: dotColor, shape: BoxShape.circle),
           ),
           const SizedBox(width: 12),
           Expanded(
@@ -642,10 +669,7 @@ class _IncidentRow extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.end,
             children: [
               Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 8,
-                  vertical: 3,
-                ),
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                 decoration: BoxDecoration(
                   color: priorityBg,
                   borderRadius: BorderRadius.circular(6),
@@ -662,10 +686,7 @@ class _IncidentRow extends StatelessWidget {
               const SizedBox(height: 4),
               Text(
                 timeText,
-                style: const TextStyle(
-                  fontSize: 10,
-                  color: Color(0xFF546E7A),
-                ),
+                style: const TextStyle(fontSize: 10, color: Color(0xFF546E7A)),
               ),
             ],
           ),

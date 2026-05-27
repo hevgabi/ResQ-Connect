@@ -468,7 +468,7 @@ class _RescuerProfileScreenState extends State<RescuerProfileScreen> {
             ],
           ),
         ),
-        bottomNavigationBar: RescuerBottomNav(currentIndex: 3),
+        bottomNavigationBar: RescuerBottomNav(currentIndex: 4),
       ),
     );
   }

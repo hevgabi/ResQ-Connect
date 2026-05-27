@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../screens/rescuer/mission_queue_screen.dart';
+import '../screens/rescuer/rescuer_team_screen.dart';
 import '../screens/rescuer/rescuer_map_screen.dart';
 import '../screens/rescuer/mission_history_screen.dart';
 import '../screens/rescuer/rescuer_profile_screen.dart';
@@ -16,6 +17,7 @@ class RescuerBottomNav extends StatelessWidget {
     final screens = [
       const MissionQueueScreen(),
       const RescuerMapScreen(),
+      const RescuerTeamScreen(),
       const MissionHistoryScreen(),
       const RescuerProfileScreen(),
     ];
@@ -55,6 +57,11 @@ class RescuerBottomNav extends StatelessWidget {
           icon: Icon(Icons.map_outlined),
           activeIcon: Icon(Icons.map),
           label: 'Map',
+        ),
+        BottomNavigationBarItem(
+          icon: Icon(Icons.groups_outlined),
+          activeIcon: Icon(Icons.groups),
+          label: 'Team',
         ),
         BottomNavigationBarItem(
           icon: Icon(Icons.history_outlined),

@@ -44,17 +44,58 @@ class MissionHistoryScreen extends StatelessWidget {
             return const Center(child: CircularProgressIndicator());
           }
 
+          if (snapshot.hasError) {
+            return Center(
+              child: Padding(
+                padding: const EdgeInsets.all(24),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      Icons.error_outline,
+                      size: 48,
+                      color: Colors.red.shade300,
+                    ),
+                    const SizedBox(height: 12),
+                    const Text(
+                      'Failed to load missions',
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      snapshot.error.toString(),
+                      style: const TextStyle(fontSize: 12, color: Colors.grey),
+                      textAlign: TextAlign.center,
+                    ),
+                  ],
+                ),
+              ),
+            );
+          }
+
           final allMissions = snapshot.data ?? [];
 
-          // Inakma sa statuses na meron ang MissionModel mo: en_route | on_site | completed | cancelled
           final completed = allMissions
-              .where((m) => m.status == 'completed' || m.status == 'arrived')
+              .where((m) => m.status == 'completed')
               .toList();
-          final shown = [...completed];
+          final shown =
+              allMissions
+                  .where(
+                    (m) => m.status == 'completed' || m.status == 'cancelled',
+                  )
+                  .toList()
+                ..sort(
+                  (a, b) => (b.createdAt ?? DateTime(0)).compareTo(
+                    a.createdAt ?? DateTime(0),
+                  ),
+                );
 
           return Column(
             children: [
-              // Summary badges
+              // Summary badge
               Container(
                 color: Colors.white,
                 padding: const EdgeInsets.symmetric(
@@ -91,7 +132,7 @@ class MissionHistoryScreen extends StatelessWidget {
           );
         },
       ),
-      bottomNavigationBar: RescuerBottomNav(currentIndex: 2),
+      bottomNavigationBar: const RescuerBottomNav(currentIndex: 3),
     );
   }
 
@@ -154,7 +195,6 @@ class _MissionHistoryCard extends StatelessWidget {
 
   Color _statusColor(String status) {
     switch (status) {
-      case 'arrived':
       case 'completed':
         return AppTheme.successGreen;
       case 'cancelled':
@@ -165,9 +205,8 @@ class _MissionHistoryCard extends StatelessWidget {
   }
 
   String _statusLabel(String status) {
-    if (status == 'arrived' || status == 'completed') {
-      return 'COMPLETED';
-    }
+    if (status == 'completed') return 'COMPLETED';
+    if (status == 'cancelled') return 'CANCELLED';
     return status.toUpperCase();
   }
 
@@ -182,7 +221,6 @@ class _MissionHistoryCard extends StatelessWidget {
     final color = _statusColor(mission.status);
     final responseTime = _responseTime();
 
-    // Gumamit ng FutureBuilder para hilahin ang orihinal na SOS request record na may hawak ng details
     return FutureBuilder<DocumentSnapshot>(
       future: FirebaseFirestore.instance
           .collection('sos_requests')
@@ -246,7 +284,7 @@ class _MissionHistoryCard extends StatelessWidget {
                 const Divider(height: 1),
                 const SizedBox(height: 10),
 
-                // Description (kung meron galing sa SOS Details)
+                // Description
                 if (sosDetails != null && sosDetails.description != null) ...[
                   Text(
                     sosDetails.description!,

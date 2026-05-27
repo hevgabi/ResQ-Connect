@@ -107,11 +107,9 @@ class _ActiveNavigationScreenState extends State<ActiveNavigationScreen> {
       setState(() => _rescuerLatLng = newLatLng);
       _updateRescuerMarker(newLatLng);
       _recalculateEtaFallback(newLatLng);
-      // Only call Directions API when the rescuer has moved enough
       _maybeRefreshRoute(newLatLng);
     });
 
-    // Write location to Firestore every 5 s — totally decoupled from route logic
     _locationUpdateTimer = Timer.periodic(const Duration(seconds: 5), (
       _,
     ) async {
@@ -124,9 +122,6 @@ class _ActiveNavigationScreenState extends State<ActiveNavigationScreen> {
     });
   }
 
-  /// Throttled route refresh: only calls the API when:
-  ///   1. No route has been drawn yet, OR
-  ///   2. Rescuer moved >= threshold AND cooldown has elapsed.
   void _maybeRefreshRoute(LatLng current) {
     if (_fetchingDirections || _victimLatLng == null) return;
 
@@ -145,7 +140,6 @@ class _ActiveNavigationScreenState extends State<ActiveNavigationScreen> {
     }
   }
 
-  /// Haversine distance between two LatLng points, in metres.
   double _haversineMeters(LatLng a, LatLng b) {
     const double r = 6371000;
     final double dLat = _rad(b.latitude - a.latitude);
@@ -160,8 +154,6 @@ class _ActiveNavigationScreenState extends State<ActiveNavigationScreen> {
 
   double _rad(double deg) => deg * math.pi / 180;
 
-  /// Fetch the fastest driving route via Google Directions API.
-  /// Requests real-time traffic data for accurate ETA.
   Future<void> _fetchDirections(LatLng origin) async {
     _fetchingDirections = true;
     _lastDirectionsFetchLatLng = origin;
@@ -194,7 +186,6 @@ class _ActiveNavigationScreenState extends State<ActiveNavigationScreen> {
       final route = routes[0] as Map<String, dynamic>;
       final leg = (route['legs'] as List)[0] as Map<String, dynamic>;
 
-      // Prefer traffic-aware duration when available
       final durField = leg['duration_in_traffic'] ?? leg['duration'];
       final etaSecs = (durField?['value'] as int?) ?? 0;
       final distMeters = (leg['distance']?['value'] as int?) ?? 0;
@@ -202,7 +193,6 @@ class _ActiveNavigationScreenState extends State<ActiveNavigationScreen> {
       final encoded = route['overview_polyline']['points'] as String;
       final List<LatLng> points = _decodePolyline(encoded);
 
-      // First step instruction
       final steps = leg['steps'] as List? ?? [];
       String instruction = 'Head toward victim';
       String dist = '';
@@ -237,7 +227,6 @@ class _ActiveNavigationScreenState extends State<ActiveNavigationScreen> {
           );
       });
 
-      // Fit camera to show rescuer + victim + full route
       if (_mapController != null && points.isNotEmpty) {
         _mapController!.animateCamera(
           CameraUpdate.newLatLngBounds(
@@ -253,7 +242,6 @@ class _ActiveNavigationScreenState extends State<ActiveNavigationScreen> {
     }
   }
 
-  /// Google Encoded Polyline Algorithm decoder.
   List<LatLng> _decodePolyline(String encoded) {
     final List<LatLng> poly = [];
     int index = 0;
@@ -337,7 +325,6 @@ class _ActiveNavigationScreenState extends State<ActiveNavigationScreen> {
     });
   }
 
-  /// Straight-line ETA fallback — shown while the first API call is in flight.
   void _recalculateEtaFallback(LatLng from) {
     if (_routeLoaded || _victimLatLng == null) return;
     final distKm = _locationService.calculateDistance(
@@ -383,7 +370,6 @@ class _ActiveNavigationScreenState extends State<ActiveNavigationScreen> {
     if (_arriving) return;
     setState(() => _arriving = true);
     try {
-      // Update mission status to on_site — not completed yet
       await _firestoreService.updateMission(widget.missionId, {
         'status': 'on_site',
         'arrived_at': FieldValue.serverTimestamp(),
@@ -394,7 +380,6 @@ class _ActiveNavigationScreenState extends State<ActiveNavigationScreen> {
       });
 
       if (!mounted) return;
-      // Navigate to On-Site screen — replace so back button doesn't return to navigation
       Navigator.pushReplacement(
         context,
         MaterialPageRoute(
@@ -436,7 +421,7 @@ class _ActiveNavigationScreenState extends State<ActiveNavigationScreen> {
       child: Scaffold(
         body: Stack(
           children: [
-            // ── Full-screen map ────────────────────────────────────────────
+            // ── Full-screen map ──────────────────────────────────────────
             GoogleMap(
               initialCameraPosition: CameraPosition(
                 target: initialTarget,
@@ -461,7 +446,7 @@ class _ActiveNavigationScreenState extends State<ActiveNavigationScreen> {
               zoomControlsEnabled: true,
             ),
 
-            // ── Turn-by-turn banner ────────────────────────────────────────
+            // ── Turn-by-turn banner ──────────────────────────────────────
             Positioned(
               top: 0,
               left: 0,
@@ -571,7 +556,7 @@ class _ActiveNavigationScreenState extends State<ActiveNavigationScreen> {
               ),
             ),
 
-            // ── Bottom victim info panel ───────────────────────────────────
+            // ── Bottom victim info + action panel ────────────────────────
             Positioned(
               bottom: 0,
               left: 0,
@@ -609,7 +594,6 @@ class _ActiveNavigationScreenState extends State<ActiveNavigationScreen> {
                             ),
                           ),
                         ),
-                        // Re-center button
                         IconButton(
                           icon: const Icon(
                             Icons.fit_screen,
@@ -647,7 +631,8 @@ class _ActiveNavigationScreenState extends State<ActiveNavigationScreen> {
                           ),
                         ),
                       ),
-                    const SizedBox(height: 16),
+                    const SizedBox(height: 12),
+                    // Arrived button
                     SizedBox(
                       width: double.infinity,
                       child: FilledButton.icon(
@@ -676,6 +661,34 @@ class _ActiveNavigationScreenState extends State<ActiveNavigationScreen> {
                       ),
                     ),
                     const SizedBox(height: 8),
+                    // Report Spotted Emergency button
+                    SizedBox(
+                      width: double.infinity,
+                      child: OutlinedButton.icon(
+                        onPressed: () => _showSpottedEmergencySheet(context),
+                        icon: const Icon(
+                          Icons.warning_amber_rounded,
+                          color: AppTheme.warningOrange,
+                          size: 18,
+                        ),
+                        label: const Text(
+                          'Report Spotted Emergency',
+                          style: TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w600,
+                            color: AppTheme.warningOrange,
+                          ),
+                        ),
+                        style: OutlinedButton.styleFrom(
+                          side: const BorderSide(color: AppTheme.warningOrange),
+                          padding: const EdgeInsets.symmetric(vertical: 12),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 8),
                   ],
                 ),
               ),
@@ -683,6 +696,16 @@ class _ActiveNavigationScreenState extends State<ActiveNavigationScreen> {
           ],
         ),
       ),
+    );
+  }
+
+  void _showSpottedEmergencySheet(BuildContext context) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) =>
+          _SpottedEmergencySheet(missionId: widget.missionId, rescuerId: uid),
     );
   }
 }
@@ -717,7 +740,6 @@ class _OnSiteScreenState extends State<OnSiteScreen> {
   void initState() {
     super.initState();
     _stopwatch.start();
-    // Tick every second
     Stream.periodic(const Duration(seconds: 1)).listen((_) {
       if (mounted)
         setState(() => _elapsedSeconds = _stopwatch.elapsed.inSeconds);
@@ -1045,6 +1067,34 @@ class _OnSiteScreenState extends State<OnSiteScreen> {
                   ),
                 ),
                 const SizedBox(height: 12),
+                // Report Spotted Emergency button
+                SizedBox(
+                  width: double.infinity,
+                  child: OutlinedButton.icon(
+                    onPressed: () => _showSpottedEmergencySheet(context),
+                    icon: const Icon(
+                      Icons.warning_amber_rounded,
+                      color: AppTheme.warningOrange,
+                      size: 18,
+                    ),
+                    label: const Text(
+                      'Report Spotted Emergency',
+                      style: TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w600,
+                        color: AppTheme.warningOrange,
+                      ),
+                    ),
+                    style: OutlinedButton.styleFrom(
+                      side: const BorderSide(color: AppTheme.warningOrange),
+                      padding: const EdgeInsets.symmetric(vertical: 14),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(14),
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 12),
                 Center(
                   child: Text(
                     'Navigation is locked while on-site.',
@@ -1057,6 +1107,186 @@ class _OnSiteScreenState extends State<OnSiteScreen> {
               ],
             ),
           ),
+        ),
+      ),
+    );
+  }
+
+  void _showSpottedEmergencySheet(BuildContext context) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) =>
+          _SpottedEmergencySheet(missionId: widget.missionId, rescuerId: uid),
+    );
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// SPOTTED EMERGENCY REPORT SHEET
+// ═══════════════════════════════════════════════════════════════════════════
+
+class _SpottedEmergencySheet extends StatefulWidget {
+  final String missionId;
+  final String rescuerId;
+
+  const _SpottedEmergencySheet({
+    required this.missionId,
+    required this.rescuerId,
+  });
+
+  @override
+  State<_SpottedEmergencySheet> createState() => _SpottedEmergencySheetState();
+}
+
+class _SpottedEmergencySheetState extends State<_SpottedEmergencySheet> {
+  final _descController = TextEditingController();
+  bool _submitting = false;
+
+  @override
+  void dispose() {
+    _descController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _submit() async {
+    final desc = _descController.text.trim();
+    if (desc.isEmpty) return;
+    setState(() => _submitting = true);
+    try {
+      await FirebaseFirestore.instance.collection('spotted_emergencies').add({
+        'description': desc,
+        'status': 'pending',
+        'reported_by_rescuer_id': widget.rescuerId,
+        'reporting_mission_id': widget.missionId,
+        'latitude': null,
+        'longitude': null,
+        'created_at': FieldValue.serverTimestamp(),
+      });
+      if (mounted) {
+        Navigator.pop(context);
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Spotted emergency reported to coordinator.'),
+            backgroundColor: AppTheme.warningOrange,
+          ),
+        );
+      }
+    } catch (e) {
+      setState(() => _submitting = false);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error: $e'),
+            backgroundColor: AppTheme.dangerRed,
+          ),
+        );
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: EdgeInsets.only(
+        bottom: MediaQuery.of(context).viewInsets.bottom,
+      ),
+      child: Container(
+        decoration: const BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+        ),
+        padding: const EdgeInsets.fromLTRB(20, 12, 20, 28),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // Handle
+            Center(
+              child: Container(
+                width: 40,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: Colors.grey.shade300,
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+            ),
+            const SizedBox(height: 16),
+            Row(
+              children: [
+                const Icon(
+                  Icons.warning_amber_rounded,
+                  color: AppTheme.warningOrange,
+                  size: 22,
+                ),
+                const SizedBox(width: 8),
+                const Text(
+                  'Report Spotted Emergency',
+                  style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold),
+                ),
+              ],
+            ),
+            const SizedBox(height: 4),
+            const Text(
+              'Describe the emergency you spotted nearby. Coordinator will assign a rescuer.',
+              style: TextStyle(fontSize: 13, color: AppTheme.textSecondary),
+            ),
+            const SizedBox(height: 16),
+            TextField(
+              controller: _descController,
+              maxLines: 4,
+              textCapitalization: TextCapitalization.sentences,
+              decoration: InputDecoration(
+                hintText: 'e.g. Person trapped under debris near the bridge...',
+                hintStyle: TextStyle(color: Colors.grey.shade400, fontSize: 13),
+                filled: true,
+                fillColor: AppTheme.background,
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  borderSide: const BorderSide(color: AppTheme.divider),
+                ),
+                enabledBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  borderSide: const BorderSide(color: AppTheme.divider),
+                ),
+                focusedBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  borderSide: const BorderSide(
+                    color: AppTheme.warningOrange,
+                    width: 1.5,
+                  ),
+                ),
+                contentPadding: const EdgeInsets.all(14),
+              ),
+            ),
+            const SizedBox(height: 16),
+            SizedBox(
+              width: double.infinity,
+              child: FilledButton.icon(
+                onPressed: _submitting ? null : _submit,
+                icon: _submitting
+                    ? const SizedBox(
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: Colors.white,
+                        ),
+                      )
+                    : const Icon(Icons.send_outlined),
+                label: Text(_submitting ? 'Submitting...' : 'Submit Report'),
+                style: FilledButton.styleFrom(
+                  backgroundColor: AppTheme.warningOrange,
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                ),
+              ),
+            ),
+          ],
         ),
       ),
     );

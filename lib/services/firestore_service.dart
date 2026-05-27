@@ -7,6 +7,7 @@ import '../models/sos_request_model.dart';
 import '../models/mission_model.dart';
 import '../models/report_model.dart';
 import '../models/evac_center_model.dart';
+import '../models/team_model.dart';
 
 /// Singleton Firestore service for ResQConnect.
 /// All reads/writes go through this class — no Cloud Functions required.
@@ -27,6 +28,8 @@ class FirestoreService {
   CollectionReference get _communityFeed => _db.collection('community_feed');
   CollectionReference get _alerts => _db.collection('alerts');
   CollectionReference get _evacCenters => _db.collection('evacuation_centers');
+  CollectionReference get _teams => _db.collection('teams');
+  CollectionReference get _teamInvites => _db.collection('team_invites');
 
   // ═══════════════════════════════════════════════════════════════════════════
   // STREAM METHODS  (use with StreamBuilder)
@@ -40,8 +43,8 @@ class FirestoreService {
         .snapshots()
         .map(
           (snap) =>
-          snap.docs.map((doc) => AlertModel.fromFirestore(doc)).toList(),
-    );
+              snap.docs.map((doc) => AlertModel.fromFirestore(doc)).toList(),
+        );
   }
 
   /// All SOS requests with status == 'open', oldest first (FIFO dispatch).
@@ -51,17 +54,17 @@ class FirestoreService {
         .orderBy('created_at', descending: false)
         .snapshots()
         .map((snap) {
-      final all = snap.docs
-          .map((doc) => SOSRequestModel.fromFirestore(doc))
-          .toList();
+          final all = snap.docs
+              .map((doc) => SOSRequestModel.fromFirestore(doc))
+              .toList();
 
-      if (excludeRescuerId == null) return all;
+          if (excludeRescuerId == null) return all;
 
-      return all.where((sos) {
-        final deferredBy = (sos.deferredBy ?? []);
-        return !deferredBy.contains(excludeRescuerId);
-      }).toList();
-    });
+          return all.where((sos) {
+            final deferredBy = (sos.deferredBy ?? []);
+            return !deferredBy.contains(excludeRescuerId);
+          }).toList();
+        });
   }
 
   /// Reports awaiting moderation, oldest first.
@@ -72,8 +75,8 @@ class FirestoreService {
         .snapshots()
         .map(
           (snap) =>
-          snap.docs.map((doc) => ReportModel.fromFirestore(doc)).toList(),
-    );
+              snap.docs.map((doc) => ReportModel.fromFirestore(doc)).toList(),
+        );
   }
 
   /// Published reports, newest first (community feed source).
@@ -84,8 +87,8 @@ class FirestoreService {
         .snapshots()
         .map(
           (snap) =>
-          snap.docs.map((doc) => ReportModel.fromFirestore(doc)).toList(),
-    );
+              snap.docs.map((doc) => ReportModel.fromFirestore(doc)).toList(),
+        );
   }
 
   /// Live updates for a single SOS request document.
@@ -108,12 +111,11 @@ class FirestoreService {
   Stream<List<MissionModel>> rescuerMissionsStream(String rescuerId) {
     return _missions
         .where('rescuer_id', isEqualTo: rescuerId)
-        .orderBy('created_at', descending: true)
         .snapshots()
         .map(
           (snap) =>
-          snap.docs.map((doc) => MissionModel.fromFirestore(doc)).toList(),
-    );
+              snap.docs.map((doc) => MissionModel.fromFirestore(doc)).toList(),
+        );
   }
 
   /// Latest 20 community feed items, newest first.
@@ -124,11 +126,11 @@ class FirestoreService {
         .snapshots()
         .map(
           (snap) => snap.docs
-          .map(
-            (doc) => {'id': doc.id, ...doc.data() as Map<String, dynamic>},
-      )
-          .toList(),
-    );
+              .map(
+                (doc) => {'id': doc.id, ...doc.data() as Map<String, dynamic>},
+              )
+              .toList(),
+        );
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
@@ -144,9 +146,9 @@ class FirestoreService {
         .snapshots()
         .map(
           (snap) => snap.docs
-          .map((doc) => EvacCenterModel.fromFirestore(doc))
-          .toList(),
-    );
+              .map((doc) => EvacCenterModel.fromFirestore(doc))
+              .toList(),
+        );
   }
 
   /// Updates the status of an evac center.
@@ -154,8 +156,8 @@ class FirestoreService {
   /// Also keeps the legacy 'is_open' field in sync for citizen map screens.
   Future<void> updateEvacCenterStatus(String centerId, String status) async {
     assert(
-    ['open', 'full', 'closed'].contains(status),
-    'status must be open, full, or closed',
+      ['open', 'full', 'closed'].contains(status),
+      'status must be open, full, or closed',
     );
     await _evacCenters.doc(centerId).update({
       'status': status,
@@ -196,9 +198,9 @@ class FirestoreService {
 
   /// Updates evac center occupancy count.
   Future<void> updateEvacCenterOccupancy(
-      String centerId,
-      int currentOccupancy,
-      ) async {
+    String centerId,
+    int currentOccupancy,
+  ) async {
     await _evacCenters.doc(centerId).update({
       'current_occupancy': currentOccupancy,
       'updated_at': FieldValue.serverTimestamp(),
@@ -236,7 +238,7 @@ class FirestoreService {
           ...rescuerData,
           // Overlay user profile fields (display_name wins over rescuer copy)
           'display_name':
-          userData['display_name'] ??
+              userData['display_name'] ??
               rescuerData['display_name'] ??
               'Unknown',
           'email': userData['email'] ?? rescuerData['email'] ?? '',
@@ -262,11 +264,11 @@ class FirestoreService {
         .snapshots()
         .map(
           (snap) => snap.docs
-          .map(
-            (doc) => {'uid': doc.id, ...doc.data() as Map<String, dynamic>},
-      )
-          .toList(),
-    );
+              .map(
+                (doc) => {'uid': doc.id, ...doc.data() as Map<String, dynamic>},
+              )
+              .toList(),
+        );
   }
 
   /// Approves a user registration.
@@ -283,10 +285,10 @@ class FirestoreService {
   /// Rejects a user registration.
   /// Sets approval_status to 'rejected', records reason and the admin's ID.
   Future<void> rejectUser(
-      String uid,
-      String adminId, {
-        String reason = '',
-      }) async {
+    String uid,
+    String adminId, {
+    String reason = '',
+  }) async {
     await _users.doc(uid).update({
       'approval_status': 'rejected',
       'is_active': false,
@@ -395,9 +397,9 @@ class FirestoreService {
   }
 
   Future<void> updateMission(
-      String missionId,
-      Map<String, dynamic> data,
-      ) async {
+    String missionId,
+    Map<String, dynamic> data,
+  ) async {
     await _missions.doc(missionId).update(data);
   }
 
@@ -418,10 +420,10 @@ class FirestoreService {
 
   /// Rejects a report and sends a notification to the author.
   Future<void> rejectReport(
-      String reportId,
-      String moderatorId,
-      String reason,
-      ) async {
+    String reportId,
+    String moderatorId,
+    String reason,
+  ) async {
     await _reports.doc(reportId).update({
       'status': 'rejected',
       'rejection_reason': reason,
@@ -432,9 +434,9 @@ class FirestoreService {
     final reportDoc = await _reports.doc(reportId).get();
     final reportData = reportDoc.data() as Map<String, dynamic>? ?? {};
     final authorId =
-    (reportData['author_id'] ?? reportData['reporter_id'] ?? '') as String;
+        (reportData['author_id'] ?? reportData['reporter_id'] ?? '') as String;
     final postTitle =
-    (reportData['title'] ?? reportData['type'] ?? 'Your post') as String;
+        (reportData['title'] ?? reportData['type'] ?? 'Your post') as String;
 
     if (authorId.isNotEmpty) {
       await _reports.doc(reportId).update({'notif_read': false});
@@ -461,14 +463,14 @@ class FirestoreService {
       reportData['media_urls'] ?? reportData['photo_urls'] ?? [],
     );
     final authorName =
-    (reportData['author_name'] ??
-        reportData['reporter_name'] ??
-        'Anonymous')
-    as String;
+        (reportData['author_name'] ??
+                reportData['reporter_name'] ??
+                'Anonymous')
+            as String;
     final authorId =
-    (reportData['author_id'] ?? reportData['reporter_id'] ?? '') as String;
+        (reportData['author_id'] ?? reportData['reporter_id'] ?? '') as String;
     final category =
-    (reportData['category'] ?? reportData['type'] ?? 'General') as String;
+        (reportData['category'] ?? reportData['type'] ?? 'General') as String;
     final source = (reportData['source'] ?? 'incident_report') as String;
 
     await _communityFeed.doc(reportId).set({
@@ -581,12 +583,12 @@ class FirestoreService {
         .doc(uid)
         .snapshots()
         .map((doc) {
-      if (!doc.exists) return null;
-      return UserModel.fromFirestore(doc);
-    })
+          if (!doc.exists) return null;
+          return UserModel.fromFirestore(doc);
+        })
         .handleError((e) {
-      debugPrint('userStream permission error (post-logout): $e');
-    });
+          debugPrint('userStream permission error (post-logout): $e');
+        });
   }
 
   Future<UserModel?> getUserById(String uid) async {
@@ -606,9 +608,9 @@ class FirestoreService {
   }
 
   Future<List<SOSRequestModel>> getRecentSosByUser(
-      String uid, {
-        int limit = 5,
-      }) async {
+    String uid, {
+    int limit = 5,
+  }) async {
     final snap = await _sosRequests
         .where('citizen_id', isEqualTo: uid)
         .orderBy('created_at', descending: true)
@@ -618,9 +620,9 @@ class FirestoreService {
   }
 
   Future<List<ReportModel>> getRecentReportsByUser(
-      String uid, {
-        int limit = 5,
-      }) async {
+    String uid, {
+    int limit = 5,
+  }) async {
     final snap = await _reports
         .where('reporter_id', isEqualTo: uid)
         .orderBy('created_at', descending: true)
@@ -671,10 +673,9 @@ class FirestoreService {
 
   /// Persists the given alert IDs as "seen" on the user doc.
   Future<void> markAlertsAsSeen(String uid, List<String> alertIds) async {
-    await _users.doc(uid).set(
-      {'seen_alert_ids': alertIds},
-      SetOptions(merge: true),
-    );
+    await _users.doc(uid).set({
+      'seen_alert_ids': alertIds,
+    }, SetOptions(merge: true));
   }
 
   /// Streams all reports belonging to a citizen that have a pending notification.
@@ -687,16 +688,16 @@ class FirestoreService {
         .limit(20)
         .snapshots()
         .map((snap) {
-      final results = <Map<String, dynamic>>[];
-      for (final doc in snap.docs) {
-        final data = doc.data() as Map<String, dynamic>;
-        final status = data['status'] as String? ?? '';
-        if (status == 'published' || status == 'rejected') {
-          results.add({'id': doc.id, ...data});
-        }
-      }
-      return results;
-    });
+          final results = <Map<String, dynamic>>[];
+          for (final doc in snap.docs) {
+            final data = doc.data() as Map<String, dynamic>;
+            final status = data['status'] as String? ?? '';
+            if (status == 'published' || status == 'rejected') {
+              results.add({'id': doc.id, ...data});
+            }
+          }
+          return results;
+        });
   }
 
   /// Marks a citizen's report notification as read by setting notif_read = true.
@@ -715,11 +716,11 @@ class FirestoreService {
         .limit(20)
         .snapshots()
         .map((snap) {
-      return snap.docs.map((doc) {
-        final data = doc.data() as Map<String, dynamic>;
-        return {'id': doc.id, ...data};
-      }).toList();
-    });
+          return snap.docs.map((doc) {
+            final data = doc.data() as Map<String, dynamic>;
+            return {'id': doc.id, ...data};
+          }).toList();
+        });
   }
 
   /// Marks an SOS notification as read.
@@ -737,11 +738,11 @@ class FirestoreService {
         .limit(10)
         .snapshots()
         .map((snap) {
-      return snap.docs.map((doc) {
-        final data = doc.data() as Map<String, dynamic>;
-        return {'id': doc.id, ...data};
-      }).toList();
-    });
+          return snap.docs.map((doc) {
+            final data = doc.data() as Map<String, dynamic>;
+            return {'id': doc.id, ...data};
+          }).toList();
+        });
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
@@ -808,6 +809,211 @@ class FirestoreService {
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
+
+  // TEAMS
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  /// Stream of all teams — for admin management.
+  Stream<List<TeamModel>> allTeamsStream() {
+    return _teams
+        .orderBy('created_at', descending: true)
+        .snapshots()
+        .map(
+          (snap) =>
+              snap.docs.map((doc) => TeamModel.fromFirestore(doc)).toList(),
+        );
+  }
+
+  /// Stream of pending teams — for admin approval badge.
+  Stream<int> pendingTeamsCountStream() {
+    return _teams
+        .where('status', isEqualTo: 'pending')
+        .snapshots()
+        .map((snap) => snap.docs.length);
+  }
+
+  /// Stream of a rescuer's team (null if not in any active team).
+  Stream<TeamModel?> rescuerTeamStream(String rescuerId) {
+    return _teams
+        .where('member_ids', arrayContains: rescuerId)
+        .where('status', isEqualTo: 'active')
+        .limit(1)
+        .snapshots()
+        .map((snap) {
+          if (snap.docs.isEmpty) return null;
+          return TeamModel.fromFirestore(snap.docs.first);
+        });
+  }
+
+  /// Stream of a rescuer's pending team (submitted but not yet approved).
+  Stream<TeamModel?> rescuerPendingTeamStream(String rescuerId) {
+    return _teams
+        .where('member_ids', arrayContains: rescuerId)
+        .where('status', isEqualTo: 'pending')
+        .limit(1)
+        .snapshots()
+        .map((snap) {
+          if (snap.docs.isEmpty) return null;
+          return TeamModel.fromFirestore(snap.docs.first);
+        });
+  }
+
+  /// Stream of pending invites for an invitee.
+  Stream<List<TeamInviteModel>> rescuerPendingInvitesStream(String rescuerId) {
+    return _teamInvites
+        .where('invitee_id', isEqualTo: rescuerId)
+        .where('status', isEqualTo: 'pending')
+        .orderBy('created_at', descending: true)
+        .snapshots()
+        .map(
+          (snap) => snap.docs
+              .map((doc) => TeamInviteModel.fromFirestore(doc))
+              .toList(),
+        );
+  }
+
+  /// Stream of all invites for a specific team.
+  Stream<List<TeamInviteModel>> teamInvitesStream(String teamId) {
+    return _teamInvites
+        .where('team_id', isEqualTo: teamId)
+        .orderBy('created_at', descending: true)
+        .snapshots()
+        .map(
+          (snap) => snap.docs
+              .map((doc) => TeamInviteModel.fromFirestore(doc))
+              .toList(),
+        );
+  }
+
+  /// Creates a new team (status: pending) and returns the team ID.
+  Future<String> createTeam({
+    required String name,
+    required String description,
+    required String leaderId,
+  }) async {
+    final ref = await _teams.add({
+      'name': name,
+      'description': description,
+      'leader_id': leaderId,
+      'member_ids': [leaderId],
+      'status': 'pending',
+      'created_at': FieldValue.serverTimestamp(),
+    });
+    return ref.id;
+  }
+
+  /// Sends an invite from a team leader to a rescuer.
+  Future<void> sendTeamInvite({
+    required String teamId,
+    required String teamName,
+    required String inviterId,
+    required String inviterName,
+    required String inviteeId,
+  }) async {
+    // Check no duplicate pending invite
+    final existing = await _teamInvites
+        .where('team_id', isEqualTo: teamId)
+        .where('invitee_id', isEqualTo: inviteeId)
+        .where('status', isEqualTo: 'pending')
+        .limit(1)
+        .get();
+    if (existing.docs.isNotEmpty) return;
+
+    await _teamInvites.add({
+      'team_id': teamId,
+      'team_name': teamName,
+      'invitee_id': inviteeId,
+      'inviter_id': inviterId,
+      'inviter_name': inviterName,
+      'status': 'pending',
+      'created_at': FieldValue.serverTimestamp(),
+    });
+  }
+
+  /// Accepts an invite: adds rescuer to team member_ids, marks invite accepted.
+  Future<void> acceptTeamInvite(
+    String inviteId,
+    String teamId,
+    String rescuerId,
+  ) async {
+    await _teamInvites.doc(inviteId).update({'status': 'accepted'});
+    await _teams.doc(teamId).update({
+      'member_ids': FieldValue.arrayUnion([rescuerId]),
+    });
+  }
+
+  /// Declines an invite.
+  Future<void> declineTeamInvite(String inviteId) async {
+    await _teamInvites.doc(inviteId).update({'status': 'declined'});
+  }
+
+  /// Submits a team to admin for approval. Team must exist and be in 'draft'.
+  /// For simplicity, teams start as 'pending' immediately on creation.
+  Future<void> submitTeamForApproval(String teamId) async {
+    await _teams.doc(teamId).update({'status': 'pending'});
+  }
+
+  /// Admin approves a team.
+  Future<void> approveTeam(String teamId, String adminId) async {
+    await _teams.doc(teamId).update({
+      'status': 'active',
+      'approved_by': adminId,
+      'approved_at': FieldValue.serverTimestamp(),
+      'rejection_reason': null,
+    });
+  }
+
+  /// Admin rejects a team.
+  Future<void> rejectTeam(String teamId, String adminId, String reason) async {
+    await _teams.doc(teamId).update({
+      'status': 'rejected',
+      'rejected_by': adminId,
+      'rejected_at': FieldValue.serverTimestamp(),
+      'rejection_reason': reason,
+    });
+  }
+
+  /// Gets all approved rescuers (for invite search).
+  Future<List<Map<String, dynamic>>> getApprovedRescuers() async {
+    final snap = await _users
+        .where('role', isEqualTo: 'rescuer')
+        .where('approval_status', isEqualTo: 'approved')
+        .get();
+    return snap.docs
+        .map((doc) => {'uid': doc.id, ...doc.data() as Map<String, dynamic>})
+        .toList();
+  }
+
+  /// Stream of mission statuses for team members — for situational awareness.
+  /// Returns a map of rescuerId -> mission status string (or null if no active mission).
+  Stream<Map<String, String?>> teamMemberMissionStatusStream(
+    List<String> memberIds,
+  ) {
+    if (memberIds.isEmpty) {
+      return Stream.value({});
+    }
+    return _missions
+        .where('rescuer_id', whereIn: memberIds)
+        .where('status', whereIn: ['en_route', 'on_site'])
+        .snapshots()
+        .map((snap) {
+          final map = <String, String?>{};
+          for (final id in memberIds) {
+            map[id] = null;
+          }
+          for (final doc in snap.docs) {
+            final data = doc.data() as Map<String, dynamic>;
+            final rid = data['rescuer_id'] as String? ?? '';
+            if (map.containsKey(rid)) {
+              map[rid] = data['status'] as String?;
+            }
+          }
+          return map;
+        });
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+
   // MODERATOR STATISTICS
   // ═══════════════════════════════════════════════════════════════════════════
 
@@ -859,7 +1065,7 @@ class FirestoreService {
         if (createdAt != null && publishedAt != null) {
           final diffMinutes =
               publishedAt.toDate().difference(createdAt.toDate()).inSeconds /
-                  60.0;
+              60.0;
           if (diffMinutes >= 0) {
             totalReviewMinutes += diffMinutes;
             reviewedWithTime++;
