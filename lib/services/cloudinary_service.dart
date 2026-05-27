@@ -15,10 +15,8 @@ import 'package:http_parser/http_parser.dart';
 ///
 /// Free tier: 25GB storage + 25GB bandwidth/month
 class CloudinaryService {
-  // ─── CONFIG — replace these two values after creating your account ────────
   static const String _cloudName = 'diozmzeak';
   static const String _uploadPreset = 'resqconnect_unsigned';
-  // ─────────────────────────────────────────────────────────────────────────
 
   static const int _maxVideoBytes = 100 * 1024 * 1024; // 100 MB
   static const int _maxImageBytes = 100 * 1024 * 1024; // 100 MB
@@ -28,14 +26,12 @@ class CloudinaryService {
 
   String get _baseUrl => 'https://api.cloudinary.com/v1_1/$_cloudName';
 
-  /// Returns the file's resource type for Cloudinary: 'image' or 'video'.
   String _resourceType(File file) {
     final ext = file.path.split('.').last.toLowerCase();
     const videoExts = {'mp4', 'mov', 'avi', 'mkv', 'webm', '3gp'};
     return videoExts.contains(ext) ? 'video' : 'image';
   }
 
-  /// Returns MIME type string for the file.
   String _mimeType(File file) {
     final ext = file.path.split('.').last.toLowerCase();
     const map = {
@@ -54,7 +50,6 @@ class CloudinaryService {
     return map[ext] ?? 'application/octet-stream';
   }
 
-  /// Validates file size. Throws [CloudinaryException] if too large.
   void _validateSize(File file) {
     final bytes = file.lengthSync();
     final resourceType = _resourceType(file);
@@ -71,12 +66,12 @@ class CloudinaryService {
   }
 
   /// Uploads a single [file] to Cloudinary under [folder].
-  ///
-  /// [onProgress] is called with values 0.0–1.0 during upload.
-  /// Returns the secure HTTPS URL of the uploaded file.
+  /// Optional [publicId] sets a fixed filename (without extension).
+  /// e.g. publicId: 'gov_id' → saved as resqconnect/users/{uid}/gov_id.jpg
   Future<String> uploadFile(
     File file, {
     required String folder,
+    String? publicId,
     void Function(double progress)? onProgress,
   }) async {
     _validateSize(file);
@@ -86,21 +81,25 @@ class CloudinaryService {
 
     final request = http.MultipartRequest('POST', url)
       ..fields['upload_preset'] = _uploadPreset
-      ..fields['folder'] = folder
-      ..files.add(
-        await http.MultipartFile.fromPath(
-          'file',
-          file.path,
-          contentType: _mediaType(_mimeType(file)),
-        ),
-      );
+      ..fields['folder'] = folder;
 
-    onProgress?.call(0.05); // Signal start
+    // If publicId is given, Cloudinary saves as folder/publicId
+    if (publicId != null) {
+      request.fields['public_id'] = publicId;
+    }
+
+    request.files.add(
+      await http.MultipartFile.fromPath(
+        'file',
+        file.path,
+        contentType: _mediaType(_mimeType(file)),
+      ),
+    );
+
+    onProgress?.call(0.05);
 
     final streamedResponse = await request.send();
-    onProgress?.call(
-      0.90,
-    ); // Signal near-complete (Cloudinary doesn't stream progress)
+    onProgress?.call(0.90);
 
     final responseBody = await streamedResponse.stream.bytesToString();
     onProgress?.call(1.0);
@@ -118,8 +117,6 @@ class CloudinaryService {
   }
 
   /// Uploads multiple files sequentially.
-  ///
-  /// [onProgress] reflects aggregate progress across all files (0.0–1.0).
   /// Returns URLs in the same order as [files].
   Future<List<String>> uploadFiles(
     List<File> files, {
@@ -146,7 +143,6 @@ class CloudinaryService {
     return urls;
   }
 
-  /// Helper to convert MIME string to MediaType from http_parser package.
   MediaType _mediaType(String mime) {
     final parts = mime.split('/');
     return MediaType(parts[0], parts.length > 1 ? parts[1] : '*');

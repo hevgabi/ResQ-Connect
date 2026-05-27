@@ -3,7 +3,16 @@ import 'cloudinary_service.dart';
 
 /// Unified storage service for ResQConnect.
 /// Delegates all uploads to Cloudinary — no Firebase Storage needed.
-/// Public API is identical to the old Firebase version so no other files need changing.
+///
+/// Folder structure:
+/// resqconnect/
+/// └── users/
+///       └── {uid}/
+///             ├── avatar      ← profile photo
+///             ├── gov_id      ← government ID
+///             └── reports/
+///                   └── {reportId}/   ← if reportId provided
+///                         └── files
 class StorageService {
   StorageService._();
   static final StorageService instance = StorageService._();
@@ -11,7 +20,7 @@ class StorageService {
   final _cloudinary = CloudinaryService.instance;
 
   /// Uploads a profile photo for [uid].
-  /// Returns the secure Cloudinary URL.
+  /// Saved as: resqconnect/users/{uid}/avatar
   Future<String> uploadProfilePhoto(
     String uid,
     File file, {
@@ -19,14 +28,14 @@ class StorageService {
   }) async {
     return _cloudinary.uploadFile(
       file,
-      folder: 'resqconnect/profiles/$uid',
+      folder: 'resqconnect/users/$uid',
+      publicId: 'avatar',
       onProgress: onProgress,
     );
   }
 
   /// Uploads a government ID for [uid].
-  /// Timestamped so re-submissions don't overwrite previous uploads.
-  /// Returns the secure Cloudinary URL.
+  /// Saved as: resqconnect/users/{uid}/gov_id
   Future<String> uploadGovId(
     String uid,
     File file, {
@@ -34,21 +43,27 @@ class StorageService {
   }) async {
     return _cloudinary.uploadFile(
       file,
-      folder: 'resqconnect/gov_ids/$uid',
+      folder: 'resqconnect/users/$uid',
+      publicId: 'gov_id',
       onProgress: onProgress,
     );
   }
 
-  /// Uploads multiple media files (images/videos) for an incident report.
-  /// Returns a list of secure Cloudinary URLs in the same order as [files].
+  /// Uploads multiple media files for a report or community post.
+  /// If [reportId] is provided: resqconnect/users/{uid}/reports/{reportId}/
+  /// Otherwise:                 resqconnect/users/{uid}/reports/
   Future<List<String>> uploadReportMedia(
     String uid,
     List<File> files, {
+    String? reportId,
     void Function(double progress)? onProgress,
   }) async {
+    final folder = reportId != null
+        ? 'resqconnect/users/$uid/reports/$reportId'
+        : 'resqconnect/users/$uid/reports';
     return _cloudinary.uploadFiles(
       files,
-      folder: 'resqconnect/reports/$uid',
+      folder: folder,
       onProgress: onProgress,
     );
   }

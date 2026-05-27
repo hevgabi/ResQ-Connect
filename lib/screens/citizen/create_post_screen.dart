@@ -259,7 +259,15 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
       List<String> mediaUrls = [];
       if (_mediaItems.isNotEmpty) {
         final files = _mediaItems.map((m) => m['file'] as File).toList();
-        mediaUrls = await StorageService.instance.uploadReportMedia(uid, files);
+        final postId = FirebaseFirestore.instance
+            .collection('community_feed')
+            .doc()
+            .id;
+        mediaUrls = await StorageService.instance.uploadReportMedia(
+          uid,
+          files,
+          reportId: postId,
+        );
       }
 
       await FirestoreService.instance.createCommunityPost({

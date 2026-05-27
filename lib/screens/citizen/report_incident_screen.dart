@@ -229,6 +229,12 @@ class _ReportIncidentScreenState extends State<ReportIncidentScreen> {
       final lastName = (d?['last_name'] as String?) ?? '';
       final reporterName = '$firstName $lastName'.trim();
 
+      // Generate reportId upfront so media folder matches Firestore doc
+      final reportId = FirebaseFirestore.instance
+          .collection('reports')
+          .doc()
+          .id;
+
       // Upload media to Cloudinary
       List<String> photoUrls = [];
       if (_mediaFiles.isNotEmpty) {
@@ -236,6 +242,7 @@ class _ReportIncidentScreenState extends State<ReportIncidentScreen> {
         photoUrls = await _storageService.uploadReportMedia(
           uid,
           files,
+          reportId: reportId,
           onProgress: (p) {
             if (mounted) setState(() => _uploadProgress = p);
           },
@@ -247,9 +254,10 @@ class _ReportIncidentScreenState extends State<ReportIncidentScreen> {
 
       // Save report with correct field names matching ReportModel + FirestoreService
       await _firestoreService.createReport({
+        'report_id': reportId,
         'reporter_id': uid,
         'reporter_name': reporterName,
-        'title': _selectedType!, // title = incident type label
+        'title': _selectedType!,
         'body': _descController.text.trim(),
         'category': category,
         'latitude': _lat,

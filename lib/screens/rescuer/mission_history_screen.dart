@@ -2,6 +2,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:timeago/timeago.dart' as timeago;
+import 'package:intl/intl.dart';
 
 import '../../models/mission_model.dart';
 import '../../models/sos_request_model.dart';
@@ -77,10 +78,6 @@ class MissionHistoryScreen extends StatelessWidget {
           }
 
           final allMissions = snapshot.data ?? [];
-
-          final completed = allMissions
-              .where((m) => m.status == 'completed')
-              .toList();
           final shown =
               allMissions
                   .where(
@@ -93,28 +90,57 @@ class MissionHistoryScreen extends StatelessWidget {
                   ),
                 );
 
+          final completed = shown.where((m) => m.status == 'completed').length;
+          final cancelled = shown.where((m) => m.status == 'cancelled').length;
+
+          // Avg duration of completed missions
+          final durations = shown
+              .where(
+                (m) =>
+                    m.status == 'completed' &&
+                    m.createdAt != null &&
+                    m.completedAt != null,
+              )
+              .map((m) => m.completedAt!.difference(m.createdAt!).inMinutes)
+              .toList();
+          final avgDuration = durations.isEmpty
+              ? null
+              : (durations.reduce((a, b) => a + b) / durations.length).round();
+
           return Column(
             children: [
-              // Summary badge
+              // ── Summary bar ─────────────────────────────────────────────
               Container(
                 color: Colors.white,
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 20,
-                  vertical: 14,
-                ),
+                padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
                 child: Row(
                   children: [
-                    _summaryBadge(
-                      '${completed.length} Completed',
-                      AppTheme.successGreen,
-                      Icons.check_circle_outline,
+                    _summaryTile(
+                      icon: Icons.check_circle_outline,
+                      value: '$completed',
+                      label: 'Completed',
+                      color: AppTheme.successGreen,
+                    ),
+                    const SizedBox(width: 10),
+                    _summaryTile(
+                      icon: Icons.cancel_outlined,
+                      value: '$cancelled',
+                      label: 'Cancelled',
+                      color: AppTheme.dangerRed,
+                    ),
+                    const SizedBox(width: 10),
+                    _summaryTile(
+                      icon: Icons.timer_outlined,
+                      value: avgDuration != null ? '${avgDuration}m' : '—',
+                      label: 'Avg Duration',
+                      color: AppTheme.primaryBlue,
                     ),
                   ],
                 ),
               ),
               const Divider(height: 1),
 
-              // Mission list
+              // ── Mission list ─────────────────────────────────────────────
               Expanded(
                 child: shown.isEmpty
                     ? _buildEmptyState()
@@ -123,8 +149,7 @@ class MissionHistoryScreen extends StatelessWidget {
                         itemCount: shown.length,
                         separatorBuilder: (_, __) => const SizedBox(height: 10),
                         itemBuilder: (context, index) {
-                          final mission = shown[index];
-                          return _MissionHistoryCard(mission: mission);
+                          return _MissionHistoryCard(mission: shown[index]);
                         },
                       ),
               ),
@@ -136,27 +161,38 @@ class MissionHistoryScreen extends StatelessWidget {
     );
   }
 
-  Widget _summaryBadge(String label, Color color, IconData icon) {
+  Widget _summaryTile({
+    required IconData icon,
+    required String value,
+    required String label,
+    required Color color,
+  }) {
     return Expanded(
       child: Container(
-        padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 14),
+        padding: const EdgeInsets.symmetric(vertical: 12),
         decoration: BoxDecoration(
-          color: color.withValues(alpha: 0.1),
+          color: color.withAlpha(18),
           borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: color.withValues(alpha: 0.3)),
+          border: Border.all(color: color.withAlpha(60)),
         ),
-        child: Row(
+        child: Column(
           children: [
             Icon(icon, color: color, size: 20),
-            const SizedBox(width: 8),
-            Expanded(
-              child: Text(
-                label,
-                style: TextStyle(
-                  color: color,
-                  fontWeight: FontWeight.bold,
-                  fontSize: 13,
-                ),
+            const SizedBox(height: 4),
+            Text(
+              value,
+              style: TextStyle(
+                color: color,
+                fontWeight: FontWeight.w800,
+                fontSize: 16,
+              ),
+            ),
+            Text(
+              label,
+              style: TextStyle(
+                color: color.withAlpha(180),
+                fontSize: 10,
+                fontWeight: FontWeight.w600,
               ),
             ),
           ],
@@ -188,38 +224,48 @@ class MissionHistoryScreen extends StatelessWidget {
   }
 }
 
+// =============================================================================
+// MISSION HISTORY CARD
+// =============================================================================
+
 class _MissionHistoryCard extends StatelessWidget {
   final MissionModel mission;
-
   const _MissionHistoryCard({required this.mission});
 
-  Color _statusColor(String status) {
-    switch (status) {
-      case 'completed':
-        return AppTheme.successGreen;
-      case 'cancelled':
-        return AppTheme.dangerRed;
-      default:
-        return AppTheme.primaryBlue;
-    }
+  Color _statusColor(String status) => switch (status) {
+    'completed' => AppTheme.successGreen,
+    'cancelled' => AppTheme.dangerRed,
+    _ => AppTheme.primaryBlue,
+  };
+
+  String _statusLabel(String status) => switch (status) {
+    'completed' => 'Completed',
+    'cancelled' => 'Cancelled',
+    _ => status.toUpperCase(),
+  };
+
+  IconData _statusIcon(String status) => switch (status) {
+    'completed' => Icons.check_circle_rounded,
+    'cancelled' => Icons.cancel_rounded,
+    _ => Icons.info_rounded,
+  };
+
+  String _formatDuration(DateTime? start, DateTime? end) {
+    if (start == null || end == null) return 'N/A';
+    final diff = end.difference(start);
+    if (diff.inHours > 0) return '${diff.inHours}h ${diff.inMinutes % 60}m';
+    if (diff.inMinutes > 0) return '${diff.inMinutes} min';
+    return 'Less than a minute';
   }
 
-  String _statusLabel(String status) {
-    if (status == 'completed') return 'COMPLETED';
-    if (status == 'cancelled') return 'CANCELLED';
-    return status.toUpperCase();
-  }
-
-  String? _responseTime() {
-    if (mission.createdAt == null || mission.completedAt == null) return null;
-    final diff = mission.completedAt!.difference(mission.createdAt!);
-    return '${diff.inMinutes} min';
+  String _formatDate(DateTime? dt) {
+    if (dt == null) return 'Unknown date';
+    return DateFormat('MMM d, yyyy · h:mm a').format(dt);
   }
 
   @override
   Widget build(BuildContext context) {
     final color = _statusColor(mission.status);
-    final responseTime = _responseTime();
 
     return FutureBuilder<DocumentSnapshot>(
       future: FirebaseFirestore.instance
@@ -227,10 +273,22 @@ class _MissionHistoryCard extends StatelessWidget {
           .doc(mission.sosId)
           .get(),
       builder: (context, snapshot) {
-        SOSRequestModel? sosDetails;
+        SOSRequestModel? sos;
         if (snapshot.hasData && snapshot.data!.exists) {
-          sosDetails = SOSRequestModel.fromFirestore(snapshot.data!);
+          sos = SOSRequestModel.fromFirestore(snapshot.data!);
         }
+
+        final citizenName = sos?.citizenName.trim().isNotEmpty == true
+            ? sos!.citizenName
+            : 'Unknown Citizen';
+
+        final description = sos?.description?.trim().isNotEmpty == true
+            ? sos!.description!
+            : null;
+
+        final address = sos?.address?.trim().isNotEmpty == true
+            ? sos!.address!
+            : null;
 
         return Card(
           elevation: 2,
@@ -242,100 +300,175 @@ class _MissionHistoryCard extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // Header: Citizen Name/ID + Status Badge
+                // ── Header: Status icon + Citizen name + Badge ────────────
                 Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
+                  crossAxisAlignment: CrossAxisAlignment.center,
                   children: [
-                    Expanded(
-                      child: Text(
-                        sosDetails != null
-                            ? 'Rescue: ${sosDetails.citizenName}'
-                            : 'Mission #${mission.id.substring(0, 6)}',
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                          fontWeight: FontWeight.bold,
-                          fontSize: 14,
-                        ),
+                    Container(
+                      width: 36,
+                      height: 36,
+                      decoration: BoxDecoration(
+                        color: color.withAlpha(25),
+                        shape: BoxShape.circle,
+                      ),
+                      child: Icon(
+                        _statusIcon(mission.status),
+                        color: color,
+                        size: 18,
                       ),
                     ),
-                    const SizedBox(width: 8),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            citizenName,
+                            style: const TextStyle(
+                              fontWeight: FontWeight.w700,
+                              fontSize: 14,
+                            ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                          Text(
+                            _formatDate(mission.createdAt),
+                            style: TextStyle(
+                              color: AppTheme.textSecondary,
+                              fontSize: 11,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
                     Container(
                       padding: const EdgeInsets.symmetric(
                         horizontal: 10,
                         vertical: 4,
                       ),
                       decoration: BoxDecoration(
-                        color: color,
-                        borderRadius: BorderRadius.circular(8),
+                        color: color.withAlpha(20),
+                        borderRadius: BorderRadius.circular(20),
+                        border: Border.all(color: color.withAlpha(80)),
                       ),
                       child: Text(
                         _statusLabel(mission.status),
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 10,
-                          fontWeight: FontWeight.bold,
+                        style: TextStyle(
+                          color: color,
+                          fontSize: 11,
+                          fontWeight: FontWeight.w700,
                         ),
                       ),
                     ),
                   ],
                 ),
-                const SizedBox(height: 10),
-                const Divider(height: 1),
-                const SizedBox(height: 10),
 
-                // Description
-                if (sosDetails != null && sosDetails.description != null) ...[
+                // ── Description ───────────────────────────────────────────
+                if (description != null) ...[
+                  const SizedBox(height: 10),
                   Text(
-                    sosDetails.description!,
+                    description,
                     style: TextStyle(
                       color: AppTheme.textSecondary,
                       fontSize: 13,
+                      height: 1.4,
                     ),
                     maxLines: 2,
                     overflow: TextOverflow.ellipsis,
                   ),
-                  const SizedBox(height: 10),
                 ],
 
-                // Stats row
-                Wrap(
-                  spacing: 16,
-                  runSpacing: 8,
+                const SizedBox(height: 10),
+                const Divider(height: 1),
+                const SizedBox(height: 10),
+
+                // ── Info row: Location + Duration ─────────────────────────
+                Row(
                   children: [
-                    if (mission.createdAt != null)
-                      _statItem(
-                        Icons.calendar_today_outlined,
-                        timeago.format(mission.createdAt!),
+                    // Location
+                    Expanded(
+                      child: Row(
+                        children: [
+                          Icon(
+                            Icons.location_on_outlined,
+                            size: 14,
+                            color: AppTheme.textSecondary,
+                          ),
+                          const SizedBox(width: 4),
+                          Expanded(
+                            child: Text(
+                              address ??
+                                  '${mission.citizenLatitude.toStringAsFixed(4)}, '
+                                      '${mission.citizenLongitude.toStringAsFixed(4)}',
+                              style: TextStyle(
+                                color: AppTheme.textSecondary,
+                                fontSize: 12,
+                              ),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                        ],
                       ),
-                    if (responseTime != null)
-                      _statItem(
-                        Icons.timer_outlined,
-                        'Duration: $responseTime',
-                      ),
-                    if (mission.notes != null && mission.notes!.isNotEmpty)
-                      _statItem(Icons.sticky_note_2_outlined, mission.notes!),
+                    ),
+                    const SizedBox(width: 12),
+                    // Duration
+                    Row(
+                      children: [
+                        Icon(
+                          Icons.timer_outlined,
+                          size: 14,
+                          color: AppTheme.textSecondary,
+                        ),
+                        const SizedBox(width: 4),
+                        Text(
+                          _formatDuration(
+                            mission.createdAt,
+                            mission.completedAt,
+                          ),
+                          style: TextStyle(
+                            color: AppTheme.textSecondary,
+                            fontSize: 12,
+                          ),
+                        ),
+                      ],
+                    ),
                   ],
                 ),
+
+                // ── Notes if any ──────────────────────────────────────────
+                if (mission.notes != null &&
+                    mission.notes!.trim().isNotEmpty) ...[
+                  const SizedBox(height: 8),
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Icon(
+                        Icons.sticky_note_2_outlined,
+                        size: 14,
+                        color: AppTheme.textSecondary,
+                      ),
+                      const SizedBox(width: 4),
+                      Expanded(
+                        child: Text(
+                          mission.notes!,
+                          style: TextStyle(
+                            color: AppTheme.textSecondary,
+                            fontSize: 12,
+                            fontStyle: FontStyle.italic,
+                          ),
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
               ],
             ),
           ),
         );
       },
-    );
-  }
-
-  Widget _statItem(IconData icon, String text) {
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Icon(icon, size: 14, color: AppTheme.textSecondary),
-        const SizedBox(width: 4),
-        Text(
-          text,
-          style: TextStyle(color: AppTheme.textSecondary, fontSize: 12),
-        ),
-      ],
     );
   }
 }

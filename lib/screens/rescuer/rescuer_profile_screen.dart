@@ -4,6 +4,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import '../settings/hamburger_menu_screen.dart';
 
+import '../../models/team_model.dart';
 import '../../services/firestore_service.dart';
 import '../../theme/app_theme.dart';
 import '../../widgets/rescuer_bottom_nav.dart';
@@ -34,8 +35,6 @@ class _RescuerProfileScreenState extends State<RescuerProfileScreen> {
   late TextEditingController _firstNameController;
   late TextEditingController _lastNameController;
   late TextEditingController _phoneController;
-
-  static const int _teamCapacityMax = 5;
 
   @override
   void initState() {
@@ -145,22 +144,6 @@ class _RescuerProfileScreenState extends State<RescuerProfileScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final activeMissions = (_rescuerData?['active_mission_count'] ?? 0) as int;
-    final teamCapacity =
-        (_rescuerData?['team_capacity_max'] ?? _teamCapacityMax) as int;
-    final capacityRatio = teamCapacity > 0
-        ? activeMissions / teamCapacity
-        : 0.0;
-
-    Color capacityColor;
-    if (capacityRatio >= 0.8) {
-      capacityColor = AppTheme.dangerRed;
-    } else if (capacityRatio >= 0.5) {
-      capacityColor = AppTheme.warningOrange;
-    } else {
-      capacityColor = AppTheme.successGreen;
-    }
-
     return LoadingOverlay(
       isLoading: _loading,
       child: Scaffold(
@@ -291,62 +274,103 @@ class _RescuerProfileScreenState extends State<RescuerProfileScreen> {
 
               const SizedBox(height: 16),
 
-              // ── Team Capacity bar ──────────────────────────────────────
-              Card(
-                elevation: 2,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(14),
-                ),
-                child: Padding(
-                  padding: const EdgeInsets.all(16),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Text(
-                        'Team Capacity',
-                        style: TextStyle(
-                          fontWeight: FontWeight.bold,
-                          fontSize: 15,
-                        ),
-                      ),
-                      const SizedBox(height: 10),
-                      ClipRRect(
-                        borderRadius: BorderRadius.circular(8),
-                        child: LinearProgressIndicator(
-                          value: capacityRatio.clamp(0.0, 1.0),
-                          minHeight: 12,
-                          backgroundColor: capacityColor.withValues(
-                            alpha: 0.15,
-                          ),
-                          valueColor: AlwaysStoppedAnimation<Color>(
-                            capacityColor,
-                          ),
-                        ),
-                      ),
-                      const SizedBox(height: 8),
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              // ── Team card ──────────────────────────────────────────────
+              StreamBuilder<TeamModel?>(
+                stream: _firestoreService.rescuerTeamStream(uid),
+                builder: (context, snap) {
+                  final team = snap.data;
+                  final isLeader = team?.leaderId == uid;
+
+                  return Card(
+                    elevation: 2,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(14),
+                    ),
+                    child: Padding(
+                      padding: const EdgeInsets.all(16),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Text(
-                            '$activeMissions / $teamCapacity missions active',
-                            style: TextStyle(
-                              color: capacityColor,
-                              fontWeight: FontWeight.w600,
-                              fontSize: 13,
-                            ),
+                          Row(
+                            children: [
+                              const Icon(
+                                Icons.groups_outlined,
+                                size: 18,
+                                color: AppTheme.primaryBlue,
+                              ),
+                              const SizedBox(width: 8),
+                              const Text(
+                                'My Team',
+                                style: TextStyle(
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 15,
+                                ),
+                              ),
+                              const Spacer(),
+                              if (team != null)
+                                Container(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 10,
+                                    vertical: 4,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: AppTheme.successGreen.withAlpha(25),
+                                    borderRadius: BorderRadius.circular(20),
+                                    border: Border.all(
+                                      color: AppTheme.successGreen.withAlpha(
+                                        80,
+                                      ),
+                                    ),
+                                  ),
+                                  child: Text(
+                                    isLeader ? 'Leader' : 'Member',
+                                    style: const TextStyle(
+                                      color: AppTheme.successGreen,
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.w700,
+                                    ),
+                                  ),
+                                ),
+                            ],
                           ),
-                          Text(
-                            '${(capacityRatio * 100).toStringAsFixed(0)}%',
-                            style: TextStyle(
-                              color: capacityColor,
-                              fontWeight: FontWeight.bold,
+                          const Divider(height: 16),
+                          if (snap.connectionState == ConnectionState.waiting)
+                            const Center(child: CircularProgressIndicator())
+                          else if (team == null)
+                            Row(
+                              children: [
+                                Icon(
+                                  Icons.info_outline,
+                                  size: 16,
+                                  color: AppTheme.textSecondary,
+                                ),
+                                const SizedBox(width: 8),
+                                Text(
+                                  'Not assigned to any team yet.',
+                                  style: TextStyle(
+                                    color: AppTheme.textSecondary,
+                                    fontSize: 13,
+                                  ),
+                                ),
+                              ],
+                            )
+                          else ...[
+                            _readonlyField('Team Name', team.name),
+                            const SizedBox(height: 10),
+                            _readonlyField(
+                              'Members',
+                              '${team.memberIds.length} member${team.memberIds.length == 1 ? '' : 's'}',
                             ),
-                          ),
+                            if (team.description.isNotEmpty) ...[
+                              const SizedBox(height: 10),
+                              _readonlyField('Description', team.description),
+                            ],
+                          ],
                         ],
                       ),
-                    ],
-                  ),
-                ),
+                    ),
+                  );
+                },
               ),
 
               const SizedBox(height: 16),
