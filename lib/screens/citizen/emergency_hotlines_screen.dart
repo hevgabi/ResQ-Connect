@@ -1,10 +1,18 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import '../../widgets/app_bottom_nav.dart';
 import 'package:url_launcher/url_launcher.dart';
 
-class EmergencyHotlinesScreen extends StatelessWidget {
+class EmergencyHotlinesScreen extends StatefulWidget {
   const EmergencyHotlinesScreen({super.key});
 
+  @override
+  State<EmergencyHotlinesScreen> createState() =>
+      _EmergencyHotlinesScreenState();
+}
+
+class _EmergencyHotlinesScreenState extends State<EmergencyHotlinesScreen>
+    with TickerProviderStateMixin {
   static const _blue = Color(0xFF0D47A1);
   static const _red = Color(0xFFD7263D);
   static const _green = Color(0xFF1FAA59);
@@ -62,6 +70,9 @@ class EmergencyHotlinesScreen extends StatelessWidget {
     },
   ];
 
+  String? _holdingNumber;
+  AnimationController? _holdController;
+
   Future<void> _call(String number) async {
     final uri = Uri(scheme: 'tel', path: number);
     if (await canLaunchUrl(uri)) {
@@ -69,9 +80,41 @@ class EmergencyHotlinesScreen extends StatelessWidget {
     }
   }
 
+  void _startHold(String number) {
+    _holdController?.dispose();
+    _holdController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1500),
+    );
+
+    setState(() => _holdingNumber = number);
+    HapticFeedback.lightImpact();
+
+    _holdController!.forward();
+    _holdController!.addStatusListener((status) {
+      if (status == AnimationStatus.completed) {
+        HapticFeedback.heavyImpact();
+        _cancelHold();
+        _call(number);
+      }
+    });
+  }
+
+  void _cancelHold() {
+    _holdController?.stop();
+    _holdController?.dispose();
+    _holdController = null;
+    if (mounted) setState(() => _holdingNumber = null);
+  }
+
+  @override
+  void dispose() {
+    _holdController?.dispose();
+    super.dispose();
+  }
+
   @override
   Widget build(BuildContext context) {
-    // Group by category
     final Map<String, List<Map<String, dynamic>>> grouped = {};
     for (final h in _hotlines) {
       final cat = h['category'] as String;
@@ -111,7 +154,7 @@ class EmergencyHotlinesScreen extends StatelessWidget {
                 SizedBox(width: 10),
                 Expanded(
                   child: Text(
-                    'Tap the call button to dial directly. Only call during real emergencies.',
+                    'Hold the call button to dial. Only call during real emergencies.',
                     style: TextStyle(fontSize: 12, color: _red),
                   ),
                 ),
@@ -120,9 +163,8 @@ class EmergencyHotlinesScreen extends StatelessWidget {
           ),
           const SizedBox(height: 20),
 
-          // Grouped hotlines
           ...grouped.entries.map(
-            (entry) => Column(
+                (entry) => Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
@@ -148,6 +190,8 @@ class EmergencyHotlinesScreen extends StatelessWidget {
   Widget _buildHotlineCard(Map<String, dynamic> h) {
     final color = h['color'] as Color;
     final icon = h['icon'] as IconData;
+    final number = h['number'] as String;
+    final isHolding = _holdingNumber == number;
 
     return Container(
       margin: const EdgeInsets.only(bottom: 10),
@@ -165,6 +209,7 @@ class EmergencyHotlinesScreen extends StatelessWidget {
       ),
       child: Row(
         children: [
+          // Left icon
           Container(
             width: 46,
             height: 46,
@@ -175,6 +220,7 @@ class EmergencyHotlinesScreen extends StatelessWidget {
             child: Icon(icon, color: color, size: 22),
           ),
           const SizedBox(width: 12),
+          // Name + description
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -198,22 +244,102 @@ class EmergencyHotlinesScreen extends StatelessWidget {
             ),
           ),
           const SizedBox(width: 8),
+          // Hold-to-call button
           GestureDetector(
-            onTap: () => _call(h['number'] as String),
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-              decoration: BoxDecoration(
-                color: color,
-                borderRadius: BorderRadius.circular(20),
-              ),
+            onLongPressStart: (_) => _startHold(number),
+            onLongPressEnd: (_) => _cancelHold(),
+            onLongPressCancel: () => _cancelHold(),
+            child: _HoldCallButton(
+              number: number,
+              color: color,
+              isHolding: isHolding,
+              controller: isHolding ? _holdController : null,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ─── Extracted hold-button widget ────────────────────────────────────────────
+
+class _HoldCallButton extends StatelessWidget {
+  final String number;
+  final Color color;
+  final bool isHolding;
+  final AnimationController? controller;
+
+  const _HoldCallButton({
+    required this.number,
+    required this.color,
+    required this.isHolding,
+    this.controller,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: 72,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          // Pill button with number
+          AnimatedContainer(
+            duration: const Duration(milliseconds: 150),
+            width: 72,
+            padding: const EdgeInsets.symmetric(vertical: 8),
+            decoration: BoxDecoration(
+              color: isHolding ? color.withValues(alpha: 0.85) : color,
+              borderRadius: BorderRadius.circular(20),
+            ),
+            child: Center(
               child: Text(
-                h['number'] as String,
+                number,
                 style: const TextStyle(
                   color: Colors.white,
                   fontWeight: FontWeight.w800,
                   fontSize: 13,
                 ),
               ),
+            ),
+          ),
+
+          const SizedBox(height: 5),
+
+          // Progress track — always visible as a gray track,
+          // fills with color while holding
+          ClipRRect(
+            borderRadius: BorderRadius.circular(4),
+            child: SizedBox(
+              height: 4,
+              width: 72,
+              child: isHolding && controller != null
+                  ? AnimatedBuilder(
+                animation: controller!,
+                builder: (_, __) => LinearProgressIndicator(
+                  value: controller!.value,
+                  backgroundColor: Colors.grey.shade300,
+                  valueColor: AlwaysStoppedAnimation<Color>(color),
+                  minHeight: 4,
+                ),
+              )
+                  : Container(
+                color: Colors.grey.shade300,
+              ),
+            ),
+          ),
+
+          const SizedBox(height: 3),
+
+          // "Hold to call" hint label
+          Text(
+            isHolding ? 'Calling...' : 'Hold to call',
+            style: TextStyle(
+              fontSize: 9,
+              fontWeight: FontWeight.w500,
+              color: isHolding ? color : Colors.grey.shade500,
+              letterSpacing: 0.2,
             ),
           ),
         ],
