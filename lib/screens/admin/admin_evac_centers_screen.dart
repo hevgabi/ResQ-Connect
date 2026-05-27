@@ -153,7 +153,7 @@ class _AdminEvacCentersScreenState
                 return ListView.separated(
                   padding: const EdgeInsets.fromLTRB(16, 16, 16, 80),
                   itemCount: filtered.length,
-                  separatorBuilder: (_, __) =>
+                  separatorBuilder: (_, _) =>
                   const SizedBox(height: 12),
                   itemBuilder: (context, index) {
                     return _EvacCenterCard(
@@ -976,8 +976,8 @@ class _EvacCenterSkeleton extends StatelessWidget {
     return ListView.separated(
       padding: const EdgeInsets.all(16),
       itemCount: 4,
-      separatorBuilder: (_, __) => const SizedBox(height: 12),
-      itemBuilder: (_, __) => Container(
+      separatorBuilder: (_, _) => const SizedBox(height: 12),
+      itemBuilder: (_, _) => Container(
         padding: const EdgeInsets.all(16),
         decoration: BoxDecoration(
           color: Colors.white,

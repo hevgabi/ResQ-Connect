@@ -168,7 +168,7 @@ class _AdminApprovalsScreenState extends State<AdminApprovalsScreen> {
                 return ListView.separated(
                   padding: const EdgeInsets.all(16),
                   itemCount: filtered.length,
-                  separatorBuilder: (_, __) =>
+                  separatorBuilder: (_, _) =>
                   const SizedBox(height: 10),
                   itemBuilder: (context, index) {
                     return _ApprovalCard(
@@ -442,7 +442,6 @@ class _ApprovalCard extends StatefulWidget {
 }
 
 class _ApprovalCardState extends State<_ApprovalCard> {
-  bool _checkingDuplicate = true;
   bool _isDuplicate = false;
 
   @override
@@ -465,11 +464,10 @@ class _ApprovalCardState extends State<_ApprovalCard> {
       if (mounted) {
         setState(() {
           _isDuplicate = matches.isNotEmpty;
-          _checkingDuplicate = false;
         });
       }
     } catch (_) {
-      if (mounted) setState(() => _checkingDuplicate = false);
+      // duplicate check failed silently
     }
   }
 
@@ -871,8 +869,8 @@ class _ApprovalSkeleton extends StatelessWidget {
     return ListView.separated(
       padding: const EdgeInsets.all(16),
       itemCount: 4,
-      separatorBuilder: (_, __) => const SizedBox(height: 10),
-      itemBuilder: (_, __) => Container(
+      separatorBuilder: (_, _) => const SizedBox(height: 10),
+      itemBuilder: (_, _) => Container(
         padding: const EdgeInsets.all(14),
         decoration: BoxDecoration(
           color: Colors.white,

@@ -7,8 +7,6 @@ import '../../widgets/error_banner.dart';
 import '../../widgets/empty_state.dart';
 import '../../screens/settings/hamburger_menu_screen.dart';
 import 'admin_incidents_screen.dart';
-import 'admin_rescuers_screen.dart';
-import 'admin_evac_centers_screen.dart';
 import 'admin_approvals_screen.dart';
 
 class AdminOverviewScreen extends StatelessWidget {
