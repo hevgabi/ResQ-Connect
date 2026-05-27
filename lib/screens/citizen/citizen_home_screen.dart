@@ -251,6 +251,12 @@ class _CitizenHomeScreenState extends State<CitizenHomeScreen> {
 
   final _refreshIndicatorKey = GlobalKey<RefreshIndicatorState>();
 
+  // ── Notification dot state ───────────────────────────────────────────────
+  bool _hasUnread = false;
+  StreamSubscription<List<AlertModel>>? _alertDotSub;
+  StreamSubscription<List<Map<String, dynamic>>>? _notifDotSub;
+  StreamSubscription<List<Map<String, dynamic>>>? _sosDotSub;
+
   // ── Notification toast state ─────────────────────────────────────────────
   StreamSubscription<List<Map<String, dynamic>>>? _notifSub;
   final Set<String> _seenNotifIds = {};
@@ -264,6 +270,7 @@ class _CitizenHomeScreenState extends State<CitizenHomeScreen> {
     super.initState();
     _initLocation();
     _listenNotifications();
+    _listenUnreadDot();
   }
 
   void _listenNotifications() {
@@ -273,17 +280,17 @@ class _CitizenHomeScreenState extends State<CitizenHomeScreen> {
     _notifSub = FirestoreService.instance
         .citizenNotificationsStream(uid)
         .listen((posts) {
-          for (final post in posts) {
-            final id = post['id'] as String;
-            if (!_seenNotifIds.contains(id)) {
-              _seenNotifIds.add(id);
-              _toastQueue.add(post);
-            }
-          }
-          if (!_showingToast && _toastQueue.isNotEmpty) {
-            _showNextToast();
-          }
-        });
+      for (final post in posts) {
+        final id = post['id'] as String;
+        if (!_seenNotifIds.contains(id)) {
+          _seenNotifIds.add(id);
+          _toastQueue.add(post);
+        }
+      }
+      if (!_showingToast && _toastQueue.isNotEmpty) {
+        _showNextToast();
+      }
+    });
   }
 
   void _showNextToast() {
@@ -310,9 +317,47 @@ class _CitizenHomeScreenState extends State<CitizenHomeScreen> {
     }
   }
 
+  void _listenUnreadDot() {
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+
+    // Community alerts: only light dot for alerts the user hasn't seen yet
+    _alertDotSub = FirestoreService.instance.alertsStream().listen((alerts) async {
+      if (uid != null) {
+        final seen = await FirestoreService.instance.getSeenAlertIds(uid);
+        _alertDotHasItems = alerts.any((a) => !seen.contains(a.id));
+      } else {
+        _alertDotHasItems = alerts.isNotEmpty;
+      }
+      if (mounted) setState(() => _hasUnread = _alertDotHasItems || _notifDotHasItems || _sosDotHasItems);
+    });
+
+    if (uid != null) {
+      _notifDotSub = FirestoreService.instance
+          .citizenNotificationsStream(uid)
+          .listen((notifs) {
+        _notifDotHasItems = notifs.isNotEmpty;
+        if (mounted) setState(() => _hasUnread = _alertDotHasItems || _notifDotHasItems || _sosDotHasItems);
+      });
+
+      _sosDotSub = FirestoreService.instance
+          .citizenSosNotificationsStream(uid)
+          .listen((items) {
+        _sosDotHasItems = items.isNotEmpty;
+        if (mounted) setState(() => _hasUnread = _alertDotHasItems || _notifDotHasItems || _sosDotHasItems);
+      });
+    }
+  }
+
+  bool _notifDotHasItems = false;
+  bool _alertDotHasItems = false;
+  bool _sosDotHasItems = false;
+
   @override
   void dispose() {
     _notifSub?.cancel();
+    _alertDotSub?.cancel();
+    _notifDotSub?.cancel();
+    _sosDotSub?.cancel();
     super.dispose();
   }
 
@@ -346,10 +391,10 @@ class _CitizenHomeScreenState extends State<CitizenHomeScreen> {
     final dLng = _deg2rad(lng2 - lng1);
     final a =
         sin(dLat / 2) * sin(dLat / 2) +
-        cos(_deg2rad(lat1)) *
-            cos(_deg2rad(lat2)) *
-            sin(dLng / 2) *
-            sin(dLng / 2);
+            cos(_deg2rad(lat1)) *
+                cos(_deg2rad(lat2)) *
+                sin(dLng / 2) *
+                sin(dLng / 2);
     return r * 2 * atan2(sqrt(a), sqrt(1 - a));
   }
 
@@ -555,12 +600,15 @@ class _CitizenHomeScreenState extends State<CitizenHomeScreen> {
             Positioned(
               right: 10,
               top: 10,
-              child: Container(
-                width: 8,
-                height: 8,
-                decoration: const BoxDecoration(
-                  color: _red,
-                  shape: BoxShape.circle,
+              child: Visibility(
+                visible: _hasUnread,
+                child: Container(
+                  width: 8,
+                  height: 8,
+                  decoration: const BoxDecoration(
+                    color: _red,
+                    shape: BoxShape.circle,
+                  ),
                 ),
               ),
             ),
@@ -751,7 +799,7 @@ class _CitizenHomeScreenState extends State<CitizenHomeScreen> {
           return Column(
             children: List.generate(
               3,
-              (_) => Padding(
+                  (_) => Padding(
                 padding: const EdgeInsets.fromLTRB(16, 0, 16, 10),
                 child: _cardContainer(child: _feedSkeleton()),
               ),

@@ -40,8 +40,8 @@ class FirestoreService {
         .snapshots()
         .map(
           (snap) =>
-              snap.docs.map((doc) => AlertModel.fromFirestore(doc)).toList(),
-        );
+          snap.docs.map((doc) => AlertModel.fromFirestore(doc)).toList(),
+    );
   }
 
   /// All SOS requests with status == 'open', oldest first (FIFO dispatch).
@@ -51,17 +51,17 @@ class FirestoreService {
         .orderBy('created_at', descending: false)
         .snapshots()
         .map((snap) {
-          final all = snap.docs
-              .map((doc) => SOSRequestModel.fromFirestore(doc))
-              .toList();
+      final all = snap.docs
+          .map((doc) => SOSRequestModel.fromFirestore(doc))
+          .toList();
 
-          if (excludeRescuerId == null) return all;
+      if (excludeRescuerId == null) return all;
 
-          return all.where((sos) {
-            final deferredBy = (sos.deferredBy ?? []);
-            return !deferredBy.contains(excludeRescuerId);
-          }).toList();
-        });
+      return all.where((sos) {
+        final deferredBy = (sos.deferredBy ?? []);
+        return !deferredBy.contains(excludeRescuerId);
+      }).toList();
+    });
   }
 
   /// Reports awaiting moderation, oldest first.
@@ -72,8 +72,8 @@ class FirestoreService {
         .snapshots()
         .map(
           (snap) =>
-              snap.docs.map((doc) => ReportModel.fromFirestore(doc)).toList(),
-        );
+          snap.docs.map((doc) => ReportModel.fromFirestore(doc)).toList(),
+    );
   }
 
   /// Published reports, newest first (community feed source).
@@ -84,8 +84,8 @@ class FirestoreService {
         .snapshots()
         .map(
           (snap) =>
-              snap.docs.map((doc) => ReportModel.fromFirestore(doc)).toList(),
-        );
+          snap.docs.map((doc) => ReportModel.fromFirestore(doc)).toList(),
+    );
   }
 
   /// Live updates for a single SOS request document.
@@ -112,8 +112,8 @@ class FirestoreService {
         .snapshots()
         .map(
           (snap) =>
-              snap.docs.map((doc) => MissionModel.fromFirestore(doc)).toList(),
-        );
+          snap.docs.map((doc) => MissionModel.fromFirestore(doc)).toList(),
+    );
   }
 
   /// Latest 20 community feed items, newest first.
@@ -124,11 +124,11 @@ class FirestoreService {
         .snapshots()
         .map(
           (snap) => snap.docs
-              .map(
-                (doc) => {'id': doc.id, ...doc.data() as Map<String, dynamic>},
-              )
-              .toList(),
-        );
+          .map(
+            (doc) => {'id': doc.id, ...doc.data() as Map<String, dynamic>},
+      )
+          .toList(),
+    );
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
@@ -144,9 +144,9 @@ class FirestoreService {
         .snapshots()
         .map(
           (snap) => snap.docs
-              .map((doc) => EvacCenterModel.fromFirestore(doc))
-              .toList(),
-        );
+          .map((doc) => EvacCenterModel.fromFirestore(doc))
+          .toList(),
+    );
   }
 
   /// Updates the status of an evac center.
@@ -154,8 +154,8 @@ class FirestoreService {
   /// Also keeps the legacy 'is_open' field in sync for citizen map screens.
   Future<void> updateEvacCenterStatus(String centerId, String status) async {
     assert(
-      ['open', 'full', 'closed'].contains(status),
-      'status must be open, full, or closed',
+    ['open', 'full', 'closed'].contains(status),
+    'status must be open, full, or closed',
     );
     await _evacCenters.doc(centerId).update({
       'status': status,
@@ -196,9 +196,9 @@ class FirestoreService {
 
   /// Updates evac center occupancy count.
   Future<void> updateEvacCenterOccupancy(
-    String centerId,
-    int currentOccupancy,
-  ) async {
+      String centerId,
+      int currentOccupancy,
+      ) async {
     await _evacCenters.doc(centerId).update({
       'current_occupancy': currentOccupancy,
       'updated_at': FieldValue.serverTimestamp(),
@@ -236,7 +236,7 @@ class FirestoreService {
           ...rescuerData,
           // Overlay user profile fields (display_name wins over rescuer copy)
           'display_name':
-              userData['display_name'] ??
+          userData['display_name'] ??
               rescuerData['display_name'] ??
               'Unknown',
           'email': userData['email'] ?? rescuerData['email'] ?? '',
@@ -262,11 +262,11 @@ class FirestoreService {
         .snapshots()
         .map(
           (snap) => snap.docs
-              .map(
-                (doc) => {'uid': doc.id, ...doc.data() as Map<String, dynamic>},
-              )
-              .toList(),
-        );
+          .map(
+            (doc) => {'uid': doc.id, ...doc.data() as Map<String, dynamic>},
+      )
+          .toList(),
+    );
   }
 
   /// Approves a user registration.
@@ -283,10 +283,10 @@ class FirestoreService {
   /// Rejects a user registration.
   /// Sets approval_status to 'rejected', records reason and the admin's ID.
   Future<void> rejectUser(
-    String uid,
-    String adminId, {
-    String reason = '',
-  }) async {
+      String uid,
+      String adminId, {
+        String reason = '',
+      }) async {
     await _users.doc(uid).update({
       'approval_status': 'rejected',
       'is_active': false,
@@ -395,9 +395,9 @@ class FirestoreService {
   }
 
   Future<void> updateMission(
-    String missionId,
-    Map<String, dynamic> data,
-  ) async {
+      String missionId,
+      Map<String, dynamic> data,
+      ) async {
     await _missions.doc(missionId).update(data);
   }
 
@@ -418,10 +418,10 @@ class FirestoreService {
 
   /// Rejects a report and sends a notification to the author.
   Future<void> rejectReport(
-    String reportId,
-    String moderatorId,
-    String reason,
-  ) async {
+      String reportId,
+      String moderatorId,
+      String reason,
+      ) async {
     await _reports.doc(reportId).update({
       'status': 'rejected',
       'rejection_reason': reason,
@@ -432,9 +432,9 @@ class FirestoreService {
     final reportDoc = await _reports.doc(reportId).get();
     final reportData = reportDoc.data() as Map<String, dynamic>? ?? {};
     final authorId =
-        (reportData['author_id'] ?? reportData['reporter_id'] ?? '') as String;
+    (reportData['author_id'] ?? reportData['reporter_id'] ?? '') as String;
     final postTitle =
-        (reportData['title'] ?? reportData['type'] ?? 'Your post') as String;
+    (reportData['title'] ?? reportData['type'] ?? 'Your post') as String;
 
     if (authorId.isNotEmpty) {
       await _reports.doc(reportId).update({'notif_read': false});
@@ -461,14 +461,14 @@ class FirestoreService {
       reportData['media_urls'] ?? reportData['photo_urls'] ?? [],
     );
     final authorName =
-        (reportData['author_name'] ??
-                reportData['reporter_name'] ??
-                'Anonymous')
-            as String;
+    (reportData['author_name'] ??
+        reportData['reporter_name'] ??
+        'Anonymous')
+    as String;
     final authorId =
-        (reportData['author_id'] ?? reportData['reporter_id'] ?? '') as String;
+    (reportData['author_id'] ?? reportData['reporter_id'] ?? '') as String;
     final category =
-        (reportData['category'] ?? reportData['type'] ?? 'General') as String;
+    (reportData['category'] ?? reportData['type'] ?? 'General') as String;
     final source = (reportData['source'] ?? 'incident_report') as String;
 
     await _communityFeed.doc(reportId).set({
@@ -581,12 +581,12 @@ class FirestoreService {
         .doc(uid)
         .snapshots()
         .map((doc) {
-          if (!doc.exists) return null;
-          return UserModel.fromFirestore(doc);
-        })
+      if (!doc.exists) return null;
+      return UserModel.fromFirestore(doc);
+    })
         .handleError((e) {
-          debugPrint('userStream permission error (post-logout): $e');
-        });
+      debugPrint('userStream permission error (post-logout): $e');
+    });
   }
 
   Future<UserModel?> getUserById(String uid) async {
@@ -606,9 +606,9 @@ class FirestoreService {
   }
 
   Future<List<SOSRequestModel>> getRecentSosByUser(
-    String uid, {
-    int limit = 5,
-  }) async {
+      String uid, {
+        int limit = 5,
+      }) async {
     final snap = await _sosRequests
         .where('citizen_id', isEqualTo: uid)
         .orderBy('created_at', descending: true)
@@ -618,9 +618,9 @@ class FirestoreService {
   }
 
   Future<List<ReportModel>> getRecentReportsByUser(
-    String uid, {
-    int limit = 5,
-  }) async {
+      String uid, {
+        int limit = 5,
+      }) async {
     final snap = await _reports
         .where('reporter_id', isEqualTo: uid)
         .orderBy('created_at', descending: true)
@@ -660,6 +660,23 @@ class FirestoreService {
     return merged.take(limit).toList();
   }
 
+  /// Returns the set of alert IDs the user has already seen (stored on user doc).
+  Future<Set<String>> getSeenAlertIds(String uid) async {
+    final doc = await _users.doc(uid).get();
+    if (!doc.exists) return {};
+    final data = doc.data() as Map<String, dynamic>;
+    final list = data['seen_alert_ids'] as List<dynamic>? ?? [];
+    return list.map((e) => e.toString()).toSet();
+  }
+
+  /// Persists the given alert IDs as "seen" on the user doc.
+  Future<void> markAlertsAsSeen(String uid, List<String> alertIds) async {
+    await _users.doc(uid).set(
+      {'seen_alert_ids': alertIds},
+      SetOptions(merge: true),
+    );
+  }
+
   /// Streams all reports belonging to a citizen that have a pending notification.
   /// Uses the existing `reports` collection so no new Firestore rules are needed.
   Stream<List<Map<String, dynamic>>> citizenNotificationsStream(String uid) {
@@ -670,21 +687,61 @@ class FirestoreService {
         .limit(20)
         .snapshots()
         .map((snap) {
-          final results = <Map<String, dynamic>>[];
-          for (final doc in snap.docs) {
-            final data = doc.data() as Map<String, dynamic>;
-            final status = data['status'] as String? ?? '';
-            if (status == 'published' || status == 'rejected') {
-              results.add({'id': doc.id, ...data});
-            }
-          }
-          return results;
-        });
+      final results = <Map<String, dynamic>>[];
+      for (final doc in snap.docs) {
+        final data = doc.data() as Map<String, dynamic>;
+        final status = data['status'] as String? ?? '';
+        if (status == 'published' || status == 'rejected') {
+          results.add({'id': doc.id, ...data});
+        }
+      }
+      return results;
+    });
   }
 
   /// Marks a citizen's report notification as read by setting notif_read = true.
   Future<void> markReportNotifRead(String reportId) async {
     await _reports.doc(reportId).update({'notif_read': true});
+  }
+
+  /// Streams a citizen's SOS requests that have an unread status notification.
+  /// A SOS notif is "unread" when [sos_notif_read == false], which is set
+  /// whenever the rescuer updates the status (assigned / resolved / cancelled).
+  Stream<List<Map<String, dynamic>>> citizenSosNotificationsStream(String uid) {
+    return _sosRequests
+        .where('citizen_id', isEqualTo: uid)
+        .where('sos_notif_read', isEqualTo: false)
+        .orderBy('updated_at', descending: true)
+        .limit(20)
+        .snapshots()
+        .map((snap) {
+      return snap.docs.map((doc) {
+        final data = doc.data() as Map<String, dynamic>;
+        return {'id': doc.id, ...data};
+      }).toList();
+    });
+  }
+
+  /// Marks an SOS notification as read.
+  Future<void> markSosNotifRead(String sosId) async {
+    await _sosRequests.doc(sosId).update({'sos_notif_read': true});
+  }
+
+  /// Streams all posts submitted by the citizen (for "pending" indicator).
+  /// Returns pending posts so the citizen knows their post is under review.
+  Stream<List<Map<String, dynamic>>> citizenPendingPostsStream(String uid) {
+    return _reports
+        .where('author_id', isEqualTo: uid)
+        .where('status', isEqualTo: 'pending')
+        .orderBy('created_at', descending: true)
+        .limit(10)
+        .snapshots()
+        .map((snap) {
+      return snap.docs.map((doc) {
+        final data = doc.data() as Map<String, dynamic>;
+        return {'id': doc.id, ...data};
+      }).toList();
+    });
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
@@ -802,7 +859,7 @@ class FirestoreService {
         if (createdAt != null && publishedAt != null) {
           final diffMinutes =
               publishedAt.toDate().difference(createdAt.toDate()).inSeconds /
-              60.0;
+                  60.0;
           if (diffMinutes >= 0) {
             totalReviewMinutes += diffMinutes;
             reviewedWithTime++;
