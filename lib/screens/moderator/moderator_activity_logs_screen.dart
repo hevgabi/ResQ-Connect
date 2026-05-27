@@ -81,7 +81,7 @@ class _ModeratorActivityLogsScreenState
       body: uid.isEmpty
           ? const Center(child: Text('Not logged in'))
           : _buildLogs(uid),
-      bottomNavigationBar: const ModeratorBottomNav(currentIndex: 4),
+      bottomNavigationBar: const ModeratorBottomNav(currentIndex: 5),
     );
   }
 

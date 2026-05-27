@@ -4,6 +4,7 @@ import '../screens/moderator/moderator_report_queue_screen.dart';
 import '../screens/moderator/moderator_published_feed_screen.dart';
 import '../screens/moderator/moderator_statistics_screen.dart';
 import '../screens/moderator/moderator_rescuer_list_screen.dart';
+import '../screens/moderator/moderator_spotted_emergencies_screen.dart';
 import '../screens/moderator/moderator_profile_screen.dart';
 
 class ModeratorBottomNav extends StatelessWidget {
@@ -19,6 +20,7 @@ class ModeratorBottomNav extends StatelessWidget {
       const ModeratorPublishedFeedScreen(),
       const ModeratorStatisticsScreen(),
       const ModeratorRescuerListScreen(),
+      const ModeratorSpottedEmergenciesScreen(),
       const ModeratorProfileScreen(),
     ];
     Navigator.pushAndRemoveUntil(
@@ -66,6 +68,11 @@ class ModeratorBottomNav extends StatelessWidget {
           icon: Icon(Icons.people_outline),
           activeIcon: Icon(Icons.people),
           label: 'Rescuers',
+        ),
+        BottomNavigationBarItem(
+          icon: Icon(Icons.warning_amber_outlined),
+          activeIcon: Icon(Icons.warning_amber_rounded),
+          label: 'Spotted',
         ),
         BottomNavigationBarItem(
           icon: Icon(Icons.person_outline),

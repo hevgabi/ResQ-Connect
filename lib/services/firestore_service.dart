@@ -712,6 +712,45 @@ class FirestoreService {
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
+  // SPOTTED EMERGENCIES
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  CollectionReference get _spottedEmergencies =>
+      _db.collection('spotted_emergencies');
+
+  /// Live stream of spotted emergencies, newest first.
+  /// Optionally filter by [status]: 'pending' | 'assigned' | 'dismissed' | null (all).
+  Stream<List<Map<String, dynamic>>> spottedEmergenciesStream({
+    String? status,
+  }) {
+    Query query = _spottedEmergencies.orderBy('created_at', descending: true);
+    if (status != null) {
+      query = query.where('status', isEqualTo: status);
+    }
+    return query.snapshots().map(
+      (snap) => snap.docs
+          .map((doc) => {'id': doc.id, ...doc.data() as Map<String, dynamic>})
+          .toList(),
+    );
+  }
+
+  /// Count of pending spotted emergencies — for nav badge.
+  Stream<int> pendingSpottedEmergenciesCountStream() {
+    return _spottedEmergencies
+        .where('status', isEqualTo: 'pending')
+        .snapshots()
+        .map((snap) => snap.docs.length);
+  }
+
+  /// Dismiss a spotted emergency.
+  Future<void> dismissSpottedEmergency(String docId) async {
+    await _spottedEmergencies.doc(docId).update({
+      'status': 'dismissed',
+      'dismissed_at': FieldValue.serverTimestamp(),
+    });
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
   // MODERATOR STATISTICS
   // ═══════════════════════════════════════════════════════════════════════════
 

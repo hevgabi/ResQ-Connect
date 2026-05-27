@@ -101,27 +101,27 @@ class _ActiveNavigationScreenState extends State<ActiveNavigationScreen> {
   }
 
   void _startLocationTracking() {
-    _locationSubscription =
-        _locationService.getPositionStream().listen((pos) {
-          if (!mounted) return;
-          final newLatLng = LatLng(pos.latitude, pos.longitude);
-          setState(() => _rescuerLatLng = newLatLng);
-          _updateRescuerMarker(newLatLng);
-          _recalculateEtaFallback(newLatLng);
-          // Only call Directions API when the rescuer has moved enough
-          _maybeRefreshRoute(newLatLng);
-        });
+    _locationSubscription = _locationService.getPositionStream().listen((pos) {
+      if (!mounted) return;
+      final newLatLng = LatLng(pos.latitude, pos.longitude);
+      setState(() => _rescuerLatLng = newLatLng);
+      _updateRescuerMarker(newLatLng);
+      _recalculateEtaFallback(newLatLng);
+      // Only call Directions API when the rescuer has moved enough
+      _maybeRefreshRoute(newLatLng);
+    });
 
     // Write location to Firestore every 5 s — totally decoupled from route logic
-    _locationUpdateTimer =
-        Timer.periodic(const Duration(seconds: 5), (_) async {
-          if (_rescuerLatLng == null) return;
-          await _firestoreService.updateRescuerLocation(
-            uid,
-            _rescuerLatLng!.latitude,
-            _rescuerLatLng!.longitude,
-          );
-        });
+    _locationUpdateTimer = Timer.periodic(const Duration(seconds: 5), (
+      _,
+    ) async {
+      if (_rescuerLatLng == null) return;
+      await _firestoreService.updateRescuerLocation(
+        uid,
+        _rescuerLatLng!.latitude,
+        _rescuerLatLng!.longitude,
+      );
+    });
   }
 
   /// Throttled route refresh: only calls the API when:
@@ -131,13 +131,13 @@ class _ActiveNavigationScreenState extends State<ActiveNavigationScreen> {
     if (_fetchingDirections || _victimLatLng == null) return;
 
     final bool noRoute = !_routeLoaded;
-    final bool movedEnough = _lastDirectionsFetchLatLng == null ||
+    final bool movedEnough =
+        _lastDirectionsFetchLatLng == null ||
         _haversineMeters(_lastDirectionsFetchLatLng!, current) >=
             _routeRefreshThresholdMeters;
-    final bool cooledDown = _lastDirectionsFetchTime == null ||
-        DateTime.now()
-            .difference(_lastDirectionsFetchTime!)
-            .inSeconds >=
+    final bool cooledDown =
+        _lastDirectionsFetchTime == null ||
+        DateTime.now().difference(_lastDirectionsFetchTime!).inSeconds >=
             _routeDebounceSeconds;
 
     if (noRoute || (movedEnough && cooledDown)) {
@@ -150,7 +150,8 @@ class _ActiveNavigationScreenState extends State<ActiveNavigationScreen> {
     const double r = 6371000;
     final double dLat = _rad(b.latitude - a.latitude);
     final double dLng = _rad(b.longitude - a.longitude);
-    final double h = math.pow(math.sin(dLat / 2), 2) +
+    final double h =
+        math.pow(math.sin(dLat / 2), 2) +
         math.cos(_rad(a.latitude)) *
             math.cos(_rad(b.latitude)) *
             math.pow(math.sin(dLng / 2), 2);
@@ -169,17 +170,16 @@ class _ActiveNavigationScreenState extends State<ActiveNavigationScreen> {
     try {
       final uri = Uri.parse(
         'https://maps.googleapis.com/maps/api/directions/json'
-            '?origin=${origin.latitude},${origin.longitude}'
-            '&destination=${_victimLatLng!.latitude},${_victimLatLng!.longitude}'
-            '&mode=driving'
-            '&alternatives=false'
-            '&traffic_model=best_guess'
-            '&departure_time=now'
-            '&key=$_apiKey',
+        '?origin=${origin.latitude},${origin.longitude}'
+        '&destination=${_victimLatLng!.latitude},${_victimLatLng!.longitude}'
+        '&mode=driving'
+        '&alternatives=false'
+        '&traffic_model=best_guess'
+        '&departure_time=now'
+        '&key=$_apiKey',
       );
 
-      final response =
-      await http.get(uri).timeout(const Duration(seconds: 10));
+      final response = await http.get(uri).timeout(const Duration(seconds: 10));
       if (response.statusCode != 200) return;
 
       final json = jsonDecode(response.body) as Map<String, dynamic>;
@@ -305,7 +305,8 @@ class _ActiveNavigationScreenState extends State<ActiveNavigationScreen> {
           markerId: const MarkerId('rescuer'),
           position: pos,
           icon: BitmapDescriptor.defaultMarkerWithHue(
-              BitmapDescriptor.hueAzure),
+            BitmapDescriptor.hueAzure,
+          ),
           infoWindow: const InfoWindow(
             title: '🚑 You (Rescuer)',
             snippet: 'Your current location',
@@ -325,8 +326,7 @@ class _ActiveNavigationScreenState extends State<ActiveNavigationScreen> {
         Marker(
           markerId: const MarkerId('victim'),
           position: _victimLatLng!,
-          icon: BitmapDescriptor.defaultMarkerWithHue(
-              BitmapDescriptor.hueRed),
+          icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueRed),
           infoWindow: InfoWindow(
             title: '🆘 ${sos?.citizenName ?? 'Victim'}',
             snippet: sos?.description ?? 'Emergency location',
@@ -354,28 +354,28 @@ class _ActiveNavigationScreenState extends State<ActiveNavigationScreen> {
 
   Future<bool> _confirmLeave() async {
     return await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Leave Navigation?'),
-        content: const Text(
-          'Are you sure you want to leave active navigation? '
+          context: context,
+          builder: (ctx) => AlertDialog(
+            title: const Text('Leave Navigation?'),
+            content: const Text(
+              'Are you sure you want to leave active navigation? '
               'The mission will remain active.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('Cancel'),
-          ),
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, true),
-            child: const Text(
-              'Leave',
-              style: TextStyle(color: AppTheme.dangerRed),
             ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx, false),
+                child: const Text('Cancel'),
+              ),
+              TextButton(
+                onPressed: () => Navigator.pop(ctx, true),
+                child: const Text(
+                  'Leave',
+                  style: TextStyle(color: AppTheme.dangerRed),
+                ),
+              ),
+            ],
           ),
-        ],
-      ),
-    ) ??
+        ) ??
         false;
   }
 
@@ -383,30 +383,27 @@ class _ActiveNavigationScreenState extends State<ActiveNavigationScreen> {
     if (_arriving) return;
     setState(() => _arriving = true);
     try {
-      final firestore = FirebaseFirestore.instance;
-      final rescuerRef = firestore.collection('rescuers').doc(uid);
+      // Update mission status to on_site — not completed yet
+      await _firestoreService.updateMission(widget.missionId, {
+        'status': 'on_site',
+        'arrived_at': FieldValue.serverTimestamp(),
+      });
+      await _firestoreService.updateSOSRequest(_sosRequest!.id, {
+        'status': 'on_site',
+        'updated_at': FieldValue.serverTimestamp(),
+      });
 
-      // Read current count first to avoid going below 0
-      final rescuerDoc = await rescuerRef.get();
-      final currentCount =
-          (rescuerDoc.data()?['active_mission_count'] as int?) ?? 0;
-      final newCount = currentCount > 0 ? currentCount - 1 : 0;
-
-      await Future.wait([
-        _firestoreService.updateMission(widget.missionId, {
-          'status': 'arrived',
-          'completed_at': FieldValue.serverTimestamp(),
-        }),
-        _firestoreService.updateSOSRequest(_sosRequest!.id, {
-          'status': 'resolved',
-          'resolved_at': FieldValue.serverTimestamp(),
-        }),
-        rescuerRef.update({
-          'active_mission_count': newCount,
-        }),
-      ]);
       if (!mounted) return;
-      Navigator.pop(context);
+      // Navigate to On-Site screen — replace so back button doesn't return to navigation
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(
+          builder: (_) => OnSiteScreen(
+            missionId: widget.missionId,
+            sosRequest: _sosRequest!,
+          ),
+        ),
+      );
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -441,17 +438,21 @@ class _ActiveNavigationScreenState extends State<ActiveNavigationScreen> {
           children: [
             // ── Full-screen map ────────────────────────────────────────────
             GoogleMap(
-              initialCameraPosition:
-              CameraPosition(target: initialTarget, zoom: 15),
+              initialCameraPosition: CameraPosition(
+                target: initialTarget,
+                zoom: 15,
+              ),
               markers: _markers,
               polylines: _polylines,
               onMapCreated: (c) {
                 _mapController = c;
                 if (_rescuerLatLng != null && _victimLatLng != null) {
-                  c.animateCamera(CameraUpdate.newLatLngBounds(
-                    _latLngBounds([_rescuerLatLng!, _victimLatLng!]),
-                    80,
-                  ));
+                  c.animateCamera(
+                    CameraUpdate.newLatLngBounds(
+                      _latLngBounds([_rescuerLatLng!, _victimLatLng!]),
+                      80,
+                    ),
+                  );
                 }
               },
               myLocationEnabled: false,
@@ -469,7 +470,9 @@ class _ActiveNavigationScreenState extends State<ActiveNavigationScreen> {
                 child: Container(
                   margin: const EdgeInsets.all(12),
                   padding: const EdgeInsets.symmetric(
-                      horizontal: 16, vertical: 14),
+                    horizontal: 16,
+                    vertical: 14,
+                  ),
                   decoration: BoxDecoration(
                     color: AppTheme.primaryBlue,
                     borderRadius: BorderRadius.circular(16),
@@ -483,8 +486,11 @@ class _ActiveNavigationScreenState extends State<ActiveNavigationScreen> {
                   ),
                   child: Row(
                     children: [
-                      const Icon(Icons.navigation_outlined,
-                          color: Colors.white, size: 24),
+                      const Icon(
+                        Icons.navigation_outlined,
+                        color: Colors.white,
+                        size: 24,
+                      ),
                       const SizedBox(width: 12),
                       Expanded(
                         child: Column(
@@ -514,7 +520,9 @@ class _ActiveNavigationScreenState extends State<ActiveNavigationScreen> {
                       if (_etaMinutes != null)
                         Container(
                           padding: const EdgeInsets.symmetric(
-                              horizontal: 10, vertical: 6),
+                            horizontal: 10,
+                            vertical: 6,
+                          ),
                           decoration: BoxDecoration(
                             color: AppTheme.successGreen,
                             borderRadius: BorderRadius.circular(10),
@@ -530,14 +538,20 @@ class _ActiveNavigationScreenState extends State<ActiveNavigationScreen> {
                                   fontSize: 18,
                                 ),
                               ),
-                              const Text('min',
-                                  style: TextStyle(
-                                      color: Colors.white70, fontSize: 10)),
+                              const Text(
+                                'min',
+                                style: TextStyle(
+                                  color: Colors.white70,
+                                  fontSize: 10,
+                                ),
+                              ),
                               if (_distanceKm != null)
                                 Text(
                                   '${_distanceKm!.toStringAsFixed(1)} km',
                                   style: const TextStyle(
-                                      color: Colors.white60, fontSize: 9),
+                                    color: Colors.white60,
+                                    fontSize: 9,
+                                  ),
                                 ),
                             ],
                           ),
@@ -547,7 +561,9 @@ class _ActiveNavigationScreenState extends State<ActiveNavigationScreen> {
                           width: 20,
                           height: 20,
                           child: CircularProgressIndicator(
-                              strokeWidth: 2, color: Colors.white),
+                            strokeWidth: 2,
+                            color: Colors.white,
+                          ),
                         ),
                     ],
                   ),
@@ -564,8 +580,7 @@ class _ActiveNavigationScreenState extends State<ActiveNavigationScreen> {
                 padding: const EdgeInsets.all(20),
                 decoration: const BoxDecoration(
                   color: Colors.white,
-                  borderRadius:
-                  BorderRadius.vertical(top: Radius.circular(20)),
+                  borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
                   boxShadow: [
                     BoxShadow(
                       color: Colors.black26,
@@ -580,8 +595,10 @@ class _ActiveNavigationScreenState extends State<ActiveNavigationScreen> {
                   children: [
                     Row(
                       children: [
-                        const Icon(Icons.person_pin_outlined,
-                            color: AppTheme.dangerRed),
+                        const Icon(
+                          Icons.person_pin_outlined,
+                          color: AppTheme.dangerRed,
+                        ),
                         const SizedBox(width: 8),
                         Expanded(
                           child: Text(
@@ -594,16 +611,20 @@ class _ActiveNavigationScreenState extends State<ActiveNavigationScreen> {
                         ),
                         // Re-center button
                         IconButton(
-                          icon: const Icon(Icons.fit_screen,
-                              color: AppTheme.primaryBlue),
+                          icon: const Icon(
+                            Icons.fit_screen,
+                            color: AppTheme.primaryBlue,
+                          ),
                           tooltip: 'Fit route on screen',
                           onPressed: () {
                             if (_rescuerLatLng != null &&
                                 _victimLatLng != null) {
                               _mapController?.animateCamera(
                                 CameraUpdate.newLatLngBounds(
-                                  _latLngBounds(
-                                      [_rescuerLatLng!, _victimLatLng!]),
+                                  _latLngBounds([
+                                    _rescuerLatLng!,
+                                    _victimLatLng!,
+                                  ]),
                                   80,
                                 ),
                               );
@@ -633,18 +654,21 @@ class _ActiveNavigationScreenState extends State<ActiveNavigationScreen> {
                         onPressed: _arriving ? null : _markArrived,
                         icon: _arriving
                             ? const SizedBox(
-                          width: 18,
-                          height: 18,
-                          child: CircularProgressIndicator(
-                              strokeWidth: 2, color: Colors.white),
-                        )
+                                width: 18,
+                                height: 18,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  color: Colors.white,
+                                ),
+                              )
                             : const Icon(Icons.check_circle_outline),
-                        label: const Text('Arrived',
-                            style: TextStyle(fontSize: 16)),
+                        label: const Text(
+                          'Arrived',
+                          style: TextStyle(fontSize: 16),
+                        ),
                         style: FilledButton.styleFrom(
                           backgroundColor: AppTheme.successGreen,
-                          padding:
-                          const EdgeInsets.symmetric(vertical: 14),
+                          padding: const EdgeInsets.symmetric(vertical: 14),
                           shape: RoundedRectangleBorder(
                             borderRadius: BorderRadius.circular(12),
                           ),
@@ -657,6 +681,382 @@ class _ActiveNavigationScreenState extends State<ActiveNavigationScreen> {
               ),
             ),
           ],
+        ),
+      ),
+    );
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// ON-SITE SCREEN — shown after rescuer taps "Arrived"
+// ═══════════════════════════════════════════════════════════════════════════
+
+class OnSiteScreen extends StatefulWidget {
+  final String missionId;
+  final SOSRequestModel sosRequest;
+
+  const OnSiteScreen({
+    super.key,
+    required this.missionId,
+    required this.sosRequest,
+  });
+
+  @override
+  State<OnSiteScreen> createState() => _OnSiteScreenState();
+}
+
+class _OnSiteScreenState extends State<OnSiteScreen> {
+  final FirestoreService _firestoreService = FirestoreService.instance;
+  final String uid = FirebaseAuth.instance.currentUser!.uid;
+
+  final Stopwatch _stopwatch = Stopwatch();
+  bool _completing = false;
+  int _elapsedSeconds = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    _stopwatch.start();
+    // Tick every second
+    Stream.periodic(const Duration(seconds: 1)).listen((_) {
+      if (mounted)
+        setState(() => _elapsedSeconds = _stopwatch.elapsed.inSeconds);
+    });
+  }
+
+  @override
+  void dispose() {
+    _stopwatch.stop();
+    super.dispose();
+  }
+
+  String _formatElapsed() {
+    final minutes = (_elapsedSeconds ~/ 60).toString().padLeft(2, '0');
+    final seconds = (_elapsedSeconds % 60).toString().padLeft(2, '0');
+    return '$minutes:$seconds';
+  }
+
+  Future<void> _completeMission() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: const Row(
+          children: [
+            Icon(Icons.check_circle_outline, color: AppTheme.successGreen),
+            SizedBox(width: 8),
+            Text('Complete Mission?'),
+          ],
+        ),
+        content: const Text(
+          'Confirm that the victim has been assisted and the emergency is resolved.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Not yet'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            style: FilledButton.styleFrom(
+              backgroundColor: AppTheme.successGreen,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(10),
+              ),
+            ),
+            child: const Text('Yes, Complete'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true || !mounted) return;
+
+    setState(() => _completing = true);
+    try {
+      final firestore = FirebaseFirestore.instance;
+      final rescuerRef = firestore.collection('rescuers').doc(uid);
+
+      final rescuerDoc = await rescuerRef.get();
+      final currentCount =
+          (rescuerDoc.data()?['active_mission_count'] as int?) ?? 0;
+      final newCount = currentCount > 0 ? currentCount - 1 : 0;
+
+      await Future.wait([
+        _firestoreService.updateMission(widget.missionId, {
+          'status': 'completed',
+          'completed_at': FieldValue.serverTimestamp(),
+        }),
+        _firestoreService.updateSOSRequest(widget.sosRequest.id, {
+          'status': 'resolved',
+          'resolved_at': FieldValue.serverTimestamp(),
+        }),
+        rescuerRef.update({'active_mission_count': newCount}),
+      ]);
+
+      if (!mounted) return;
+      Navigator.pushNamedAndRemoveUntil(context, '/', (route) => false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Mission completed. Great work!'),
+          backgroundColor: AppTheme.successGreen,
+        ),
+      );
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error: $e'),
+            backgroundColor: AppTheme.dangerRed,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _completing = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final sos = widget.sosRequest;
+
+    return WillPopScope(
+      onWillPop: () async => false,
+      child: Scaffold(
+        backgroundColor: AppTheme.background,
+        appBar: AppBar(
+          backgroundColor: AppTheme.primaryBlue,
+          foregroundColor: Colors.white,
+          automaticallyImplyLeading: false,
+          title: const Text(
+            'On-Site',
+            style: TextStyle(fontWeight: FontWeight.bold),
+          ),
+          elevation: 0,
+        ),
+        body: SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.all(20),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // Status banner
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.symmetric(
+                    vertical: 14,
+                    horizontal: 16,
+                  ),
+                  decoration: BoxDecoration(
+                    color: AppTheme.successGreen.withValues(alpha: 0.1),
+                    borderRadius: BorderRadius.circular(14),
+                    border: Border.all(
+                      color: AppTheme.successGreen.withValues(alpha: 0.4),
+                    ),
+                  ),
+                  child: const Row(
+                    children: [
+                      Icon(
+                        Icons.location_on,
+                        color: AppTheme.successGreen,
+                        size: 22,
+                      ),
+                      SizedBox(width: 10),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'You have arrived on-site',
+                              style: TextStyle(
+                                fontWeight: FontWeight.bold,
+                                color: AppTheme.successGreen,
+                                fontSize: 14,
+                              ),
+                            ),
+                            Text(
+                              'Assist the victim, then mark as Complete.',
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: AppTheme.successGreen,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 20),
+
+                // On-site timer
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.symmetric(vertical: 20),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(14),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withValues(alpha: 0.06),
+                        blurRadius: 8,
+                        offset: const Offset(0, 2),
+                      ),
+                    ],
+                  ),
+                  child: Column(
+                    children: [
+                      Text(
+                        'Time On-Site',
+                        style: TextStyle(
+                          fontSize: 13,
+                          color: AppTheme.textSecondary,
+                        ),
+                      ),
+                      const SizedBox(height: 6),
+                      Text(
+                        _formatElapsed(),
+                        style: const TextStyle(
+                          fontSize: 48,
+                          fontWeight: FontWeight.bold,
+                          color: AppTheme.primaryBlue,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        'mm : ss',
+                        style: TextStyle(
+                          fontSize: 11,
+                          color: AppTheme.textSecondary,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 20),
+
+                // Victim info card
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(14),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withValues(alpha: 0.06),
+                        blurRadius: 8,
+                        offset: const Offset(0, 2),
+                      ),
+                    ],
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          const Icon(
+                            Icons.person_pin_outlined,
+                            color: AppTheme.dangerRed,
+                            size: 18,
+                          ),
+                          const SizedBox(width: 8),
+                          Text(
+                            sos.citizenName,
+                            style: const TextStyle(
+                              fontWeight: FontWeight.bold,
+                              fontSize: 15,
+                            ),
+                          ),
+                        ],
+                      ),
+                      if (sos.description != null &&
+                          sos.description!.isNotEmpty) ...[
+                        const SizedBox(height: 10),
+                        const Divider(height: 1),
+                        const SizedBox(height: 10),
+                        Text(
+                          sos.description!,
+                          style: const TextStyle(
+                            fontSize: 13,
+                            color: AppTheme.textSecondary,
+                          ),
+                        ),
+                      ],
+                      if (sos.address != null && sos.address!.isNotEmpty) ...[
+                        const SizedBox(height: 8),
+                        Row(
+                          children: [
+                            const Icon(
+                              Icons.place_outlined,
+                              size: 14,
+                              color: AppTheme.textSecondary,
+                            ),
+                            const SizedBox(width: 4),
+                            Expanded(
+                              child: Text(
+                                sos.address!,
+                                style: const TextStyle(
+                                  fontSize: 12,
+                                  color: AppTheme.textSecondary,
+                                ),
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+
+                const Spacer(),
+
+                // Complete Mission button
+                SizedBox(
+                  width: double.infinity,
+                  child: FilledButton.icon(
+                    onPressed: _completing ? null : _completeMission,
+                    icon: _completing
+                        ? const SizedBox(
+                            width: 18,
+                            height: 18,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              color: Colors.white,
+                            ),
+                          )
+                        : const Icon(Icons.task_alt_outlined),
+                    label: Text(
+                      _completing ? 'Completing...' : 'Complete Mission',
+                      style: const TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    style: FilledButton.styleFrom(
+                      backgroundColor: AppTheme.successGreen,
+                      padding: const EdgeInsets.symmetric(vertical: 16),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(14),
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                Center(
+                  child: Text(
+                    'Navigation is locked while on-site.',
+                    style: TextStyle(
+                      fontSize: 11,
+                      color: AppTheme.textSecondary,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
         ),
       ),
     );

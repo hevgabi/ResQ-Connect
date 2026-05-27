@@ -50,10 +50,7 @@ class MissionHistoryScreen extends StatelessWidget {
           final completed = allMissions
               .where((m) => m.status == 'completed' || m.status == 'arrived')
               .toList();
-          final cancelled = allMissions
-              .where((m) => m.status == 'cancelled')
-              .toList();
-          final shown = [...completed, ...cancelled];
+          final shown = [...completed];
 
           return Column(
             children: [
@@ -70,12 +67,6 @@ class MissionHistoryScreen extends StatelessWidget {
                       '${completed.length} Completed',
                       AppTheme.successGreen,
                       Icons.check_circle_outline,
-                    ),
-                    const SizedBox(width: 12),
-                    _summaryBadge(
-                      '${cancelled.length} Cancelled',
-                      AppTheme.dangerRed,
-                      Icons.cancel_outlined,
                     ),
                   ],
                 ),
