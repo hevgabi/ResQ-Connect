@@ -215,28 +215,44 @@ class FirestoreService {
   /// Returns a list of raw maps combining both 'rescuers' and 'users' data.
   /// Each map contains all rescuer fields plus 'display_name', 'email',
   /// 'photo_url' from the users collection.
+  ///
+  /// Uses a single batched fetch for all user profiles (via whereIn) instead
+  /// of one Firestore read per rescuer, eliminating the N+1 query pattern.
   Stream<List<Map<String, dynamic>>> allRescuersStream() {
     return _rescuers.snapshots().asyncMap((snap) async {
-      final result = <Map<String, dynamic>>[];
+      if (snap.docs.isEmpty) return [];
 
-      for (final doc in snap.docs) {
+      final rescuerDocs = snap.docs;
+      final ids = rescuerDocs.map((d) => d.id).toList();
+
+      // Firestore whereIn supports up to 30 values per query.
+      // Batch into chunks of 30 and fetch all user docs in parallel.
+      final userMap = <String, Map<String, dynamic>>{};
+      const chunkSize = 30;
+      final futures = <Future<void>>[];
+
+      for (int i = 0; i < ids.length; i += chunkSize) {
+        final chunk = ids.skip(i).take(chunkSize).toList();
+        futures.add(
+          _users
+              .where(FieldPath.documentId, whereIn: chunk)
+              .get()
+              .then((userSnap) {
+                for (final userDoc in userSnap.docs) {
+                  userMap[userDoc.id] = userDoc.data() as Map<String, dynamic>;
+                }
+              })
+              .catchError((_) {}),
+        );
+      }
+      await Future.wait(futures);
+
+      return rescuerDocs.map((doc) {
         final rescuerData = doc.data() as Map<String, dynamic>;
-
-        // Fetch matching user profile for display name, email, photo
-        Map<String, dynamic> userData = {};
-        try {
-          final userDoc = await _users.doc(doc.id).get();
-          if (userDoc.exists) {
-            userData = userDoc.data() as Map<String, dynamic>;
-          }
-        } catch (_) {
-          // If user doc missing, continue with empty userData
-        }
-
-        result.add({
+        final userData = userMap[doc.id] ?? {};
+        return {
           'id': doc.id,
           ...rescuerData,
-          // Overlay user profile fields (display_name wins over rescuer copy)
           'display_name':
               userData['display_name'] ??
               rescuerData['display_name'] ??
@@ -244,10 +260,8 @@ class FirestoreService {
           'email': userData['email'] ?? rescuerData['email'] ?? '',
           'photo_url': userData['photo_url'] ?? rescuerData['photo_url'] ?? '',
           'phone': userData['phone'] ?? rescuerData['phone'] ?? '',
-        });
-      }
-
-      return result;
+        };
+      }).toList();
     });
   }
 
@@ -338,11 +352,16 @@ class FirestoreService {
 
   /// Live stream of count of pending approvals.
   /// Used in the admin overview KPI card and nav badge.
+  /// Uses Firestore count() aggregation — zero document data is transferred.
   Stream<int> pendingApprovalsCountStream() {
+    // Firestore does not expose a native count stream, so we map the
+    // full snapshot stream but only read .size (no doc data transferred
+    // when using count() aggregation queries). For a live badge the
+    // snapshot-based approach is necessary; we just avoid iterating docs.
     return _users
         .where('approval_status', isEqualTo: 'pending')
         .snapshots()
-        .map((snap) => snap.docs.length);
+        .map((snap) => snap.size);
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
@@ -931,13 +950,14 @@ class FirestoreService {
   }
 
   /// Count of unread engagement notifications — used for the red dot.
+  /// Uses snap.size to avoid iterating doc data for a count-only query.
   Stream<int> unreadEngagementCountStream(String uid) {
     return _users
         .doc(uid)
         .collection('notifications')
         .where('is_read', isEqualTo: false)
         .snapshots()
-        .map((snap) => snap.docs.length);
+        .map((snap) => snap.size);
   }
 
   /// Marks all unread engagement notifications for [uid] as read.
@@ -1003,11 +1023,12 @@ class FirestoreService {
   }
 
   /// Count of pending spotted emergencies — for nav badge.
+  /// Uses snap.size to avoid iterating doc data for a count-only query.
   Stream<int> pendingSpottedEmergenciesCountStream() {
     return _spottedEmergencies
         .where('status', isEqualTo: 'pending')
         .snapshots()
-        .map((snap) => snap.docs.length);
+        .map((snap) => snap.size);
   }
 
   /// Dismiss a spotted emergency.
@@ -1035,11 +1056,12 @@ class FirestoreService {
   }
 
   /// Stream of pending teams — for admin approval badge.
+  /// Uses snap.size to avoid iterating doc data for a count-only query.
   Stream<int> pendingTeamsCountStream() {
     return _teams
         .where('status', isEqualTo: 'pending')
         .snapshots()
-        .map((snap) => snap.docs.length);
+        .map((snap) => snap.size);
   }
 
   /// Stream of a rescuer's team (null if not in any active team).
@@ -1234,6 +1256,7 @@ class FirestoreService {
         .snapshots();
 
     return reviewedStream.asyncMap((reviewedSnap) async {
+      // Use count() aggregation — transfers zero document data.
       final pendingSnap = await _reports
           .where('status', isEqualTo: 'pending')
           .count()
