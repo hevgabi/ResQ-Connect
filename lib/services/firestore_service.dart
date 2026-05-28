@@ -129,6 +129,8 @@ class FirestoreService {
               .map(
                 (doc) => {'id': doc.id, ...doc.data() as Map<String, dynamic>},
               )
+              // Exclude posts soft-deleted by the author.
+              .where((data) => data['is_deleted'] != true)
               .toList(),
         );
   }
@@ -669,6 +671,12 @@ class FirestoreService {
   }
 
   Future<void> deleteCommunityPost(String postId) async {
+    // Soft-delete first so communityFeedStream immediately hides the post,
+    // even before the hard-delete completes.
+    try {
+      await _communityFeed.doc(postId).update({'is_deleted': true});
+    } catch (_) {}
+    // Hard-delete comments and the document itself.
     try {
       final commentsSnap = await _communityFeed
           .doc(postId)

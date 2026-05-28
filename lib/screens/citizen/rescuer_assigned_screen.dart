@@ -65,6 +65,10 @@ class _RescuerAssignedScreenState extends State<RescuerAssignedScreen>
   bool _onSiteShown = false;
   bool _arrivedSheetShown = false;
 
+  // Cancel button — visible for 30 s from screen load, only while status == open
+  bool _cancelButtonVisible = true;
+  Timer? _cancelVisibilityTimer;
+
   @override
   void initState() {
     super.initState();
@@ -77,6 +81,10 @@ class _RescuerAssignedScreenState extends State<RescuerAssignedScreen>
       end: 1.0,
     ).animate(_pulseController);
     _listenToSos();
+    // Cancel button disappears after 30 seconds
+    _cancelVisibilityTimer = Timer(const Duration(seconds: 30), () {
+      if (mounted) setState(() => _cancelButtonVisible = false);
+    });
   }
 
   void _listenToSos() {
@@ -403,6 +411,59 @@ class _RescuerAssignedScreenState extends State<RescuerAssignedScreen>
     );
   }
 
+  Future<void> _cancelSosRequest() async {
+    final status = _sosRequest?.status;
+    // Only allow cancel if SOS is still open (unassigned)
+    if (status != 'open' && status != null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Cannot cancel — a rescuer has already been assigned.'),
+          backgroundColor: Colors.orange,
+        ),
+      );
+      return;
+    }
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Cancel SOS?'),
+        content: const Text(
+          'Are you sure you want to cancel this SOS request? This cannot be undone.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Keep'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text(
+              'Cancel SOS',
+              style: TextStyle(color: Colors.red),
+            ),
+          ),
+        ],
+      ),
+    );
+    if (confirm != true) return;
+    try {
+      await FirebaseFirestore.instance
+          .collection('sos_requests')
+          .doc(widget.sosId)
+          .update({
+            'status': 'cancelled',
+            'updated_at': FieldValue.serverTimestamp(),
+          });
+      if (!mounted) return;
+      _goHome();
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Failed to cancel. Please try again.')),
+      );
+    }
+  }
+
   void _goHome() {
     Navigator.pushAndRemoveUntil(
       context,
@@ -436,6 +497,7 @@ class _RescuerAssignedScreenState extends State<RescuerAssignedScreen>
     _sosSubscription?.cancel();
     _rescuerLocationSubscription?.cancel();
     _pulseController.dispose();
+    _cancelVisibilityTimer?.cancel();
     super.dispose();
   }
 
@@ -711,6 +773,28 @@ class _RescuerAssignedScreenState extends State<RescuerAssignedScreen>
             ],
           ),
         ),
+        // Cancel button — only visible for 30 s and only when status is open
+        if (_cancelButtonVisible && _sosRequest?.status == 'open') ...[
+          const SizedBox(height: 16),
+          SizedBox(
+            width: double.infinity,
+            child: OutlinedButton.icon(
+              onPressed: _cancelSosRequest,
+              icon: const Icon(Icons.cancel_outlined, color: Colors.red),
+              label: const Text(
+                'Cancel SOS Request',
+                style: TextStyle(color: Colors.red),
+              ),
+              style: OutlinedButton.styleFrom(
+                side: const BorderSide(color: Colors.red),
+                padding: const EdgeInsets.symmetric(vertical: 14),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+              ),
+            ),
+          ),
+        ],
       ],
     );
   }

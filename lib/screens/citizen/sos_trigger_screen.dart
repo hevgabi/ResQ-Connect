@@ -282,6 +282,28 @@ class _SosTriggerScreenState extends State<SosTriggerScreen>
       return;
     }
 
+    // ── Security: block if user already has an active SOS ──────────────────
+    try {
+      final existing = await FirebaseFirestore.instance
+          .collection('sos_requests')
+          .where('citizen_id', isEqualTo: uid)
+          .where('status', whereIn: ['open', 'assigned'])
+          .limit(1)
+          .get();
+
+      if (existing.docs.isNotEmpty) {
+        if (!mounted) return;
+        setState(() => _step = _SosStep.hold);
+        _showError(
+          'You already have an active SOS request. '
+          'It must be resolved or completed before sending a new one.',
+        );
+        return;
+      }
+    } catch (_) {
+      // If the check fails, still allow submission — fail open for safety
+    }
+
     try {
       final docRef = await FirebaseFirestore.instance
           .collection('sos_requests')
