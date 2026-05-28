@@ -19,6 +19,7 @@ import '../admin/admin_incidents_screen.dart';
 import '../admin/admin_approvals_screen.dart';
 import '../admin/admin_broadcast_screen.dart';
 import '../admin/admin_reports_screen.dart';
+import '../admin/admin_teams_screen.dart';
 import '../citizen/help_support_screen.dart';
 import '../citizen/personal_information_screen.dart';
 import '../citizen/privacy_settings_screen.dart';
@@ -34,9 +35,9 @@ enum HamburgerRole { citizen, rescuer, moderator, admin }
 // =============================================================================
 
 void showHamburgerMenu(
-    BuildContext context, {
-      HamburgerRole role = HamburgerRole.citizen,
-    }) {
+  BuildContext context, {
+  HamburgerRole role = HamburgerRole.citizen,
+}) {
   Navigator.push(
     context,
     MaterialPageRoute(builder: (_) => HamburgerMenuScreen(role: role)),
@@ -68,16 +69,16 @@ class _HamburgerMenuScreenState extends State<HamburgerMenuScreen> {
           .userStream(uid)
           .listen(
             (user) {
-          if (mounted) setState(() => _user = user);
-        },
-        onError: (e) {
-          debugPrint(
-            'HamburgerMenuScreen userStream error (post-logout): $e',
+              if (mounted) setState(() => _user = user);
+            },
+            onError: (e) {
+              debugPrint(
+                'HamburgerMenuScreen userStream error (post-logout): $e',
+              );
+              _userSub?.cancel();
+              if (mounted) Navigator.of(context).pop();
+            },
           );
-          _userSub?.cancel();
-          if (mounted) Navigator.of(context).pop();
-        },
-      );
     }
   }
 
@@ -132,9 +133,7 @@ class _HamburgerMenuScreenState extends State<HamburgerMenuScreen> {
               subtitle: 'View and manage all rescuers',
               onTap: () => Navigator.push(
                 context,
-                MaterialPageRoute(
-                  builder: (_) => const AdminRescuersScreen(),
-                ),
+                MaterialPageRoute(builder: (_) => const AdminRescuersScreen()),
               ),
             ),
             _MenuTile(
@@ -156,14 +155,11 @@ class _HamburgerMenuScreenState extends State<HamburgerMenuScreen> {
               subtitle: 'View all SOS incidents',
               onTap: () => Navigator.push(
                 context,
-                MaterialPageRoute(
-                  builder: (_) => const AdminIncidentsScreen(),
-                ),
+                MaterialPageRoute(builder: (_) => const AdminIncidentsScreen()),
               ),
             ),
             StreamBuilder<int>(
-              stream:
-              FirestoreService.instance.pendingApprovalsCountStream(),
+              stream: FirestoreService.instance.pendingApprovalsCountStream(),
               builder: (context, snapshot) {
                 final count = snapshot.data ?? 0;
                 return _MenuTile(
@@ -188,9 +184,7 @@ class _HamburgerMenuScreenState extends State<HamburgerMenuScreen> {
               subtitle: 'Send emergency alerts to users',
               onTap: () => Navigator.push(
                 context,
-                MaterialPageRoute(
-                  builder: (_) => const AdminBroadcastScreen(),
-                ),
+                MaterialPageRoute(builder: (_) => const AdminBroadcastScreen()),
               ),
             ),
             _MenuTile(
@@ -200,10 +194,25 @@ class _HamburgerMenuScreenState extends State<HamburgerMenuScreen> {
               subtitle: 'Incident & rescuer statistics',
               onTap: () => Navigator.push(
                 context,
-                MaterialPageRoute(
-                  builder: (_) => const AdminReportsScreen(),
-                ),
+                MaterialPageRoute(builder: (_) => const AdminReportsScreen()),
               ),
+            ),
+            StreamBuilder<int>(
+              stream: FirestoreService.instance.pendingDisbandCountStream(),
+              builder: (context, snapshot) {
+                final count = snapshot.data ?? 0;
+                return _MenuTile(
+                  icon: Icons.groups_outlined,
+                  iconColor: const Color(0xFF0D47A1),
+                  title: 'Teams',
+                  subtitle: 'Manage rescuer teams & disband requests',
+                  badge: count > 0 ? '$count disband pending' : null,
+                  onTap: () => Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (_) => const AdminTeamsScreen()),
+                  ),
+                );
+              },
             ),
             const SizedBox(height: 8),
           ],
@@ -263,7 +272,9 @@ class _HamburgerMenuScreenState extends State<HamburgerMenuScreen> {
             subtitle: 'Name, phone number',
             onTap: () => Navigator.push(
               context,
-              MaterialPageRoute(builder: (_) => const PersonalInformationScreen()),
+              MaterialPageRoute(
+                builder: (_) => const PersonalInformationScreen(),
+              ),
             ),
           ),
           _MenuTile(
@@ -273,7 +284,9 @@ class _HamburgerMenuScreenState extends State<HamburgerMenuScreen> {
             subtitle: user?.email ?? '—',
             onTap: () => ScaffoldMessenger.of(context).showSnackBar(
               const SnackBar(
-                content: Text('Email address cannot be changed. Contact support if you need help.'),
+                content: Text(
+                  'Email address cannot be changed. Contact support if you need help.',
+                ),
                 behavior: SnackBarBehavior.floating,
               ),
             ),
@@ -326,7 +339,9 @@ class _HamburgerMenuScreenState extends State<HamburgerMenuScreen> {
             subtitle: 'Control when the app uses your location',
             onTap: () => ScaffoldMessenger.of(context).showSnackBar(
               const SnackBar(
-                content: Text('Open your device Settings → Apps → ResQConnect → Permissions to manage location access.'),
+                content: Text(
+                  'Open your device Settings → Apps → ResQConnect → Permissions to manage location access.',
+                ),
                 behavior: SnackBarBehavior.floating,
                 duration: Duration(seconds: 4),
               ),
@@ -400,7 +415,7 @@ class _HamburgerMenuScreenState extends State<HamburgerMenuScreen> {
               if (context.mounted) {
                 Navigator.of(context).pushAndRemoveUntil(
                   MaterialPageRoute(builder: (_) => const LoginScreen()),
-                      (route) => false,
+                  (route) => false,
                 );
               }
             },
@@ -428,82 +443,81 @@ class _HamburgerMenuScreenState extends State<HamburgerMenuScreen> {
           ),
           content: sent
               ? const Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(
-                Icons.mark_email_read_outlined,
-                color: AppTheme.successGreen,
-                size: 48,
-              ),
-              SizedBox(height: 12),
-              Text(
-                'Password reset email sent! Check your inbox.',
-                textAlign: TextAlign.center,
-              ),
-            ],
-          )
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      Icons.mark_email_read_outlined,
+                      color: AppTheme.successGreen,
+                      size: 48,
+                    ),
+                    SizedBox(height: 12),
+                    Text(
+                      'Password reset email sent! Check your inbox.',
+                      textAlign: TextAlign.center,
+                    ),
+                  ],
+                )
               : Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Text(
-                "We'll send a password reset link to your email address.",
-                style: TextStyle(color: AppTheme.textSecondary),
-              ),
-              const SizedBox(height: 16),
-              TextField(
-                controller: emailController
-                  ..text =
-                      FirebaseAuth.instance.currentUser?.email ?? '',
-                keyboardType: TextInputType.emailAddress,
-                decoration: InputDecoration(
-                  labelText: 'Email',
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(10),
-                  ),
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      "We'll send a password reset link to your email address.",
+                      style: TextStyle(color: AppTheme.textSecondary),
+                    ),
+                    const SizedBox(height: 16),
+                    TextField(
+                      controller: emailController
+                        ..text = FirebaseAuth.instance.currentUser?.email ?? '',
+                      keyboardType: TextInputType.emailAddress,
+                      decoration: InputDecoration(
+                        labelText: 'Email',
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
-              ),
-            ],
-          ),
           actions: sent
               ? [
-            ElevatedButton(
-              style: ElevatedButton.styleFrom(
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(10),
-                ),
-              ),
-              onPressed: () => Navigator.pop(ctx),
-              child: const Text('Done'),
-            ),
-          ]
+                  ElevatedButton(
+                    style: ElevatedButton.styleFrom(
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                    ),
+                    onPressed: () => Navigator.pop(ctx),
+                    child: const Text('Done'),
+                  ),
+                ]
               : [
-            TextButton(
-              onPressed: () => Navigator.pop(ctx),
-              child: const Text('Cancel'),
-            ),
-            ElevatedButton(
-              style: ElevatedButton.styleFrom(
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(10),
-                ),
-              ),
-              onPressed: () async {
-                try {
-                  await FirebaseAuth.instance.sendPasswordResetEmail(
-                    email: emailController.text.trim(),
-                  );
-                  setState(() => sent = true);
-                } catch (e) {
-                  Navigator.pop(ctx);
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(content: Text('Error: $e')),
-                  );
-                }
-              },
-              child: const Text('Send Link'),
-            ),
-          ],
+                  TextButton(
+                    onPressed: () => Navigator.pop(ctx),
+                    child: const Text('Cancel'),
+                  ),
+                  ElevatedButton(
+                    style: ElevatedButton.styleFrom(
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                    ),
+                    onPressed: () async {
+                      try {
+                        await FirebaseAuth.instance.sendPasswordResetEmail(
+                          email: emailController.text.trim(),
+                        );
+                        setState(() => sent = true);
+                      } catch (e) {
+                        Navigator.pop(ctx);
+                        ScaffoldMessenger.of(
+                          context,
+                        ).showSnackBar(SnackBar(content: Text('Error: $e')));
+                      }
+                    },
+                    child: const Text('Send Link'),
+                  ),
+                ],
         ),
       ),
     );
@@ -587,18 +601,21 @@ class _ProfileHeaderTileState extends State<_ProfileHeaderTile> {
     if (picked == null || !mounted) return;
     setState(() => _uploadingPhoto = true);
     try {
-      final url = await StorageService.instance.uploadProfilePhoto(uid, File(picked.path));
+      final url = await StorageService.instance.uploadProfilePhoto(
+        uid,
+        File(picked.path),
+      );
       await FirestoreService.instance.updateUserField(uid, 'photo_url', url);
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Profile photo updated!')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('Profile photo updated!')));
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed to upload photo: $e')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Failed to upload photo: $e')));
       }
     } finally {
       if (mounted) setState(() => _uploadingPhoto = false);
@@ -625,13 +642,13 @@ class _ProfileHeaderTileState extends State<_ProfileHeaderTile> {
                       : null,
                   child: widget.user?.photoUrl == null
                       ? Text(
-                    _initials().isNotEmpty ? _initials() : '?',
-                    style: TextStyle(
-                      fontSize: 22,
-                      fontWeight: FontWeight.bold,
-                      color: color,
-                    ),
-                  )
+                          _initials().isNotEmpty ? _initials() : '?',
+                          style: TextStyle(
+                            fontSize: 22,
+                            fontWeight: FontWeight.bold,
+                            color: color,
+                          ),
+                        )
                       : null,
                 ),
                 Positioned(
@@ -646,14 +663,18 @@ class _ProfileHeaderTileState extends State<_ProfileHeaderTile> {
                     ),
                     child: _uploadingPhoto
                         ? const SizedBox(
-                      width: 10,
-                      height: 10,
-                      child: CircularProgressIndicator(
-                        strokeWidth: 2,
-                        color: Colors.white,
-                      ),
-                    )
-                        : const Icon(Icons.camera_alt, size: 10, color: Colors.white),
+                            width: 10,
+                            height: 10,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              color: Colors.white,
+                            ),
+                          )
+                        : const Icon(
+                            Icons.camera_alt,
+                            size: 10,
+                            color: Colors.white,
+                          ),
                   ),
                 ),
               ],
@@ -784,30 +805,29 @@ class _MenuTile extends StatelessWidget {
             ),
             trailing: badge != null
                 ? Container(
-              padding: const EdgeInsets.symmetric(
-                horizontal: 8,
-                vertical: 3,
-              ),
-              decoration: BoxDecoration(
-                color:
-                const Color(0xFF546E7A).withValues(alpha: 0.12),
-                borderRadius: BorderRadius.circular(8),
-              ),
-              child: Text(
-                badge!,
-                style: const TextStyle(
-                  fontSize: 10,
-                  fontWeight: FontWeight.w700,
-                  color: Color(0xFF546E7A),
-                ),
-              ),
-            )
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 8,
+                      vertical: 3,
+                    ),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF546E7A).withValues(alpha: 0.12),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Text(
+                      badge!,
+                      style: const TextStyle(
+                        fontSize: 10,
+                        fontWeight: FontWeight.w700,
+                        color: Color(0xFF546E7A),
+                      ),
+                    ),
+                  )
                 : showChevron
                 ? const Icon(
-              Icons.chevron_right,
-              color: AppTheme.textSecondary,
-              size: 20,
-            )
+                    Icons.chevron_right,
+                    color: AppTheme.textSecondary,
+                    size: 20,
+                  )
                 : null,
             onTap: onTap,
           ),

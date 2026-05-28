@@ -201,7 +201,6 @@ class _RescuerTeamScreenState extends State<RescuerTeamScreen> {
           'disband_status': 'pending',
           'disband_reason': reasonCtrl.text.trim(),
           'disband_requested_at': FieldValue.serverTimestamp(),
-          'disband_requested_by': _currentUid,
         });
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(

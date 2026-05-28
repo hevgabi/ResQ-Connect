@@ -961,36 +961,42 @@ class FirestoreService {
         .map((snap) => snap.docs.length);
   }
 
+  /// Stream of teams with a pending disband request — for admin badge.
+  Stream<int> pendingDisbandCountStream() {
+    return _teams
+        .where('disband_status', isEqualTo: 'pending')
+        .snapshots()
+        .map((snap) => snap.docs.length);
+  }
+
   /// Stream of a rescuer's team (null if not in any active team).
   /// Single where clause only to avoid composite index requirement.
   Stream<TeamModel?> rescuerTeamStream(String rescuerId) {
-    return _teams
-        .where('member_ids', arrayContains: rescuerId)
-        .snapshots()
-        .map((snap) {
-          final active = snap.docs.where((doc) {
-            final d = doc.data() as Map<String, dynamic>;
-            return d['status'] == 'active';
-          }).toList();
-          if (active.isEmpty) return null;
-          return TeamModel.fromFirestore(active.first);
-        });
+    return _teams.where('member_ids', arrayContains: rescuerId).snapshots().map(
+      (snap) {
+        final active = snap.docs.where((doc) {
+          final d = doc.data() as Map<String, dynamic>;
+          return d['status'] == 'active';
+        }).toList();
+        if (active.isEmpty) return null;
+        return TeamModel.fromFirestore(active.first);
+      },
+    );
   }
 
   /// Stream of a rescuer's pending team (submitted but not yet approved).
   /// Single where clause only to avoid composite index requirement.
   Stream<TeamModel?> rescuerPendingTeamStream(String rescuerId) {
-    return _teams
-        .where('member_ids', arrayContains: rescuerId)
-        .snapshots()
-        .map((snap) {
-          final pending = snap.docs.where((doc) {
-            final d = doc.data() as Map<String, dynamic>;
-            return d['status'] == 'pending';
-          }).toList();
-          if (pending.isEmpty) return null;
-          return TeamModel.fromFirestore(pending.first);
-        });
+    return _teams.where('member_ids', arrayContains: rescuerId).snapshots().map(
+      (snap) {
+        final pending = snap.docs.where((doc) {
+          final d = doc.data() as Map<String, dynamic>;
+          return d['status'] == 'pending';
+        }).toList();
+        if (pending.isEmpty) return null;
+        return TeamModel.fromFirestore(pending.first);
+      },
+    );
   }
 
   /// Stream of pending invites for an invitee.
@@ -1016,20 +1022,19 @@ class FirestoreService {
   /// Stream of all invites for a specific team.
   /// No orderBy — avoids composite index requirement. Sorted in Dart instead.
   Stream<List<TeamInviteModel>> teamInvitesStream(String teamId) {
-    return _teamInvites
-        .where('team_id', isEqualTo: teamId)
-        .snapshots()
-        .map((snap) {
-          final list = snap.docs
-              .map((doc) => TeamInviteModel.fromFirestore(doc))
-              .toList();
-          list.sort((a, b) {
-            final aTime = a.createdAt ?? DateTime(2000);
-            final bTime = b.createdAt ?? DateTime(2000);
-            return bTime.compareTo(aTime);
-          });
-          return list;
-        });
+    return _teamInvites.where('team_id', isEqualTo: teamId).snapshots().map((
+      snap,
+    ) {
+      final list = snap.docs
+          .map((doc) => TeamInviteModel.fromFirestore(doc))
+          .toList();
+      list.sort((a, b) {
+        final aTime = a.createdAt ?? DateTime(2000);
+        final bTime = b.createdAt ?? DateTime(2000);
+        return bTime.compareTo(aTime);
+      });
+      return list;
+    });
   }
 
   /// Creates a new team (status: pending) and returns the team ID.
