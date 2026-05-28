@@ -1,11 +1,15 @@
 import 'dart:async';
+import 'dart:io';
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
 import '../settings/hamburger_menu_screen.dart';
 
 import '../../models/team_model.dart';
 import '../../services/firestore_service.dart';
+import '../../services/storage_service.dart';
 import '../../theme/app_theme.dart';
 import '../../widgets/rescuer_bottom_nav.dart';
 import '../../widgets/loading_overlay.dart';
@@ -21,6 +25,9 @@ class RescuerProfileScreen extends StatefulWidget {
 class _RescuerProfileScreenState extends State<RescuerProfileScreen>
     with SingleTickerProviderStateMixin {
   final FirestoreService _firestoreService = FirestoreService.instance;
+  final StorageService _storageService = StorageService.instance;
+  final ImagePicker _imagePicker = ImagePicker();
+  bool _uploadingPhoto = false;
   final String uid = FirebaseAuth.instance.currentUser!.uid;
 
   Map<String, dynamic>? _userData;
@@ -63,32 +70,32 @@ class _RescuerProfileScreenState extends State<RescuerProfileScreen>
         .doc(uid)
         .snapshots()
         .listen((doc) {
-          if (!mounted || !doc.exists) return;
-          final rData = doc.data();
-          setState(() {
-            _rescuerData = rData;
-            if (!_togglingDuty) {
-              _onDuty = rData?['is_on_duty'] ?? false;
-            }
-          });
-        });
+      if (!mounted || !doc.exists) return;
+      final rData = doc.data();
+      setState(() {
+        _rescuerData = rData;
+        if (!_togglingDuty) {
+          _onDuty = rData?['is_on_duty'] ?? false;
+        }
+      });
+    });
 
     _userStreamSub = FirebaseFirestore.instance
         .collection('users')
         .doc(uid)
         .snapshots()
         .listen((doc) {
-          if (!mounted || !doc.exists) return;
-          final uData = doc.data();
-          setState(() {
-            _userData = uData;
-            if (!_editingPersonal) {
-              _firstNameController.text = uData?['first_name'] ?? '';
-              _lastNameController.text = uData?['last_name'] ?? '';
-              _phoneController.text = uData?['phone'] ?? '';
-            }
-          });
-        });
+      if (!mounted || !doc.exists) return;
+      final uData = doc.data();
+      setState(() {
+        _userData = uData;
+        if (!_editingPersonal) {
+          _firstNameController.text = uData?['first_name'] ?? '';
+          _lastNameController.text = uData?['last_name'] ?? '';
+          _phoneController.text = uData?['phone'] ?? '';
+        }
+      });
+    });
   }
 
   Future<void> _toggleDuty(bool value) async {
@@ -108,6 +115,33 @@ class _RescuerProfileScreenState extends State<RescuerProfileScreen>
       }
     } finally {
       if (mounted) setState(() => _togglingDuty = false);
+    }
+  }
+
+  Future<void> _pickAndUploadPhoto() async {
+    final picked = await _imagePicker.pickImage(
+      source: ImageSource.gallery,
+      imageQuality: 75,
+    );
+    if (picked == null || !mounted) return;
+    setState(() => _uploadingPhoto = true);
+    try {
+      final file = File(picked.path);
+      final url = await _storageService.uploadProfilePhoto(uid, file);
+      await _firestoreService.updateUserField(uid, 'photo_url', url);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Profile photo updated!')),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to upload photo: $e')),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _uploadingPhoto = false);
     }
   }
 
@@ -140,7 +174,7 @@ class _RescuerProfileScreenState extends State<RescuerProfileScreen>
     final first = _userData?['first_name'] ?? '';
     final last = _userData?['last_name'] ?? '';
     return ((first.isNotEmpty ? first[0] : '') +
-            (last.isNotEmpty ? last[0] : ''))
+        (last.isNotEmpty ? last[0] : ''))
         .toUpperCase();
   }
 
@@ -241,24 +275,56 @@ class _RescuerProfileScreenState extends State<RescuerProfileScreen>
               Positioned(
                 bottom: -36,
                 left: 16,
-                child: Container(
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    border: Border.all(color: _cardBg, width: 4),
-                  ),
-                  child: CircleAvatar(
-                    radius: 48,
-                    backgroundColor: const Color(
-                      0xFF1FAA59,
-                    ).withValues(alpha: 0.2),
-                    child: Text(
-                      initials.isEmpty ? '?' : initials,
-                      style: const TextStyle(
-                        fontSize: 32,
-                        fontWeight: FontWeight.bold,
-                        color: Color(0xFF1FAA59),
+                child: GestureDetector(
+                  onTap: _uploadingPhoto ? null : _pickAndUploadPhoto,
+                  child: Stack(
+                    children: [
+                      Container(
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          border: Border.all(color: _cardBg, width: 4),
+                        ),
+                        child: CircleAvatar(
+                          radius: 48,
+                          backgroundColor: const Color(0xFF1FAA59).withValues(alpha: 0.2),
+                          backgroundImage: (_userData?['photo_url'] as String?)?.isNotEmpty == true
+                              ? CachedNetworkImageProvider(_userData!['photo_url'] as String)
+                              : null,
+                          child: (_userData?['photo_url'] as String?)?.isNotEmpty == true
+                              ? null
+                              : Text(
+                            initials.isEmpty ? '?' : initials,
+                            style: const TextStyle(
+                              fontSize: 32,
+                              fontWeight: FontWeight.bold,
+                              color: Color(0xFF1FAA59),
+                            ),
+                          ),
+                        ),
                       ),
-                    ),
+                      Positioned(
+                        bottom: 4,
+                        right: 4,
+                        child: Container(
+                          padding: const EdgeInsets.all(5),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFF1FAA59),
+                            shape: BoxShape.circle,
+                            border: Border.all(color: Colors.white, width: 2),
+                          ),
+                          child: _uploadingPhoto
+                              ? const SizedBox(
+                            width: 12,
+                            height: 12,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              color: Colors.white,
+                            ),
+                          )
+                              : const Icon(Icons.camera_alt, size: 12, color: Colors.white),
+                        ),
+                      ),
+                    ],
                   ),
                 ),
               ),
@@ -404,7 +470,7 @@ class _RescuerProfileScreenState extends State<RescuerProfileScreen>
         if (docs.isNotEmpty) {
           final total = docs.fold<int>(
             0,
-            (sum, d) => sum + ((d.data() as Map)['stars'] as int? ?? 0),
+                (sum, d) => sum + ((d.data() as Map)['stars'] as int? ?? 0),
           );
           avg = total / docs.length;
         }
@@ -715,19 +781,19 @@ class _RescuerProfileScreenState extends State<RescuerProfileScreen>
                   ],
                 )
               else ...[
-                _readonlyRow(Icons.groups_outlined, 'Team Name', team.name),
-                _readonlyRow(
-                  Icons.people_outline,
-                  'Members',
-                  '${team.memberIds.length} member${team.memberIds.length == 1 ? '' : 's'}',
-                ),
-                if (team.description.isNotEmpty)
+                  _readonlyRow(Icons.groups_outlined, 'Team Name', team.name),
                   _readonlyRow(
-                    Icons.description_outlined,
-                    'Description',
-                    team.description,
+                    Icons.people_outline,
+                    'Members',
+                    '${team.memberIds.length} member${team.memberIds.length == 1 ? '' : 's'}',
                   ),
-              ],
+                  if (team.description.isNotEmpty)
+                    _readonlyRow(
+                      Icons.description_outlined,
+                      'Description',
+                      team.description,
+                    ),
+                ],
             ],
           ),
         );
@@ -794,7 +860,7 @@ class _RescuerProfileScreenState extends State<RescuerProfileScreen>
                           children: [
                             ...List.generate(
                               5,
-                              (i) => Icon(
+                                  (i) => Icon(
                                 i < stars
                                     ? Icons.star_rounded
                                     : Icons.star_outline_rounded,
@@ -860,12 +926,12 @@ class _RescuerProfileScreenState extends State<RescuerProfileScreen>
   }
 
   Widget _infoRow(
-    IconData icon,
-    String label,
-    TextEditingController controller,
-    bool editing, {
-    TextInputType? keyboardType,
-  }) {
+      IconData icon,
+      String label,
+      TextEditingController controller,
+      bool editing, {
+        TextInputType? keyboardType,
+      }) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 12),
       child: Row(
@@ -884,27 +950,27 @@ class _RescuerProfileScreenState extends State<RescuerProfileScreen>
                 const SizedBox(height: 2),
                 editing
                     ? TextField(
-                        controller: controller,
-                        keyboardType: keyboardType,
-                        style: const TextStyle(fontSize: 15),
-                        decoration: InputDecoration(
-                          isDense: true,
-                          border: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(8),
-                          ),
-                          contentPadding: const EdgeInsets.symmetric(
-                            horizontal: 10,
-                            vertical: 8,
-                          ),
-                        ),
-                      )
+                  controller: controller,
+                  keyboardType: keyboardType,
+                  style: const TextStyle(fontSize: 15),
+                  decoration: InputDecoration(
+                    isDense: true,
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    contentPadding: const EdgeInsets.symmetric(
+                      horizontal: 10,
+                      vertical: 8,
+                    ),
+                  ),
+                )
                     : Text(
-                        controller.text.isEmpty ? 'Not set' : controller.text,
-                        style: const TextStyle(
-                          fontSize: 15,
-                          color: _textPrimary,
-                        ),
-                      ),
+                  controller.text.isEmpty ? 'Not set' : controller.text,
+                  style: const TextStyle(
+                    fontSize: 15,
+                    color: _textPrimary,
+                  ),
+                ),
               ],
             ),
           ),

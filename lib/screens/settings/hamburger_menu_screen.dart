@@ -1,13 +1,16 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
 
 import '../../models/user_model.dart';
 import '../../providers/auth_provider.dart' as app_auth;
 import '../../services/firestore_service.dart';
+import '../../services/storage_service.dart';
 import '../../theme/app_theme.dart';
 import '../entry/login_screen.dart';
 import '../admin/admin_rescuers_screen.dart';
@@ -16,6 +19,9 @@ import '../admin/admin_incidents_screen.dart';
 import '../admin/admin_approvals_screen.dart';
 import '../admin/admin_broadcast_screen.dart';
 import '../admin/admin_reports_screen.dart';
+import '../citizen/help_support_screen.dart';
+import '../citizen/personal_information_screen.dart';
+import '../citizen/privacy_settings_screen.dart';
 
 // =============================================================================
 // ROLE ENUM
@@ -210,8 +216,10 @@ class _HamburgerMenuScreenState extends State<HamburgerMenuScreen> {
               iconColor: AppTheme.primaryBlue,
               title: 'Help & Support',
               subtitle: 'FAQs and support articles',
-              badge: 'Coming Soon',
-              onTap: () => _showComingSoon(context),
+              onTap: () => Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => const HelpSupportScreen()),
+              ),
             ),
             const SizedBox(height: 8),
           ],
@@ -223,8 +231,10 @@ class _HamburgerMenuScreenState extends State<HamburgerMenuScreen> {
               iconColor: const Color(0xFF1FAA59),
               title: 'Help & Support',
               subtitle: 'FAQs and support articles',
-              badge: 'Coming Soon',
-              onTap: () => _showComingSoon(context),
+              onTap: () => Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => const HelpSupportScreen()),
+              ),
             ),
             const SizedBox(height: 8),
           ],
@@ -236,8 +246,10 @@ class _HamburgerMenuScreenState extends State<HamburgerMenuScreen> {
               iconColor: const Color(0xFF6A1B9A),
               title: 'Help & Support',
               subtitle: 'FAQs and support articles',
-              badge: 'Coming Soon',
-              onTap: () => _showComingSoon(context),
+              onTap: () => Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => const HelpSupportScreen()),
+              ),
             ),
             const SizedBox(height: 8),
           ],
@@ -249,14 +261,22 @@ class _HamburgerMenuScreenState extends State<HamburgerMenuScreen> {
             iconColor: _roleAccent,
             title: 'Personal Information',
             subtitle: 'Name, phone number',
-            onTap: () => _showComingSoon(context),
+            onTap: () => Navigator.push(
+              context,
+              MaterialPageRoute(builder: (_) => const PersonalInformationScreen()),
+            ),
           ),
           _MenuTile(
             icon: Icons.email_outlined,
             iconColor: _roleAccent,
             title: 'Email Address',
             subtitle: user?.email ?? '—',
-            onTap: () => _showComingSoon(context),
+            onTap: () => ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('Email address cannot be changed. Contact support if you need help.'),
+                behavior: SnackBarBehavior.floating,
+              ),
+            ),
           ),
           _MenuTile(
             icon: Icons.lock_outline,
@@ -294,14 +314,23 @@ class _HamburgerMenuScreenState extends State<HamburgerMenuScreen> {
             iconColor: const Color(0xFF1B5E20),
             title: 'Privacy Settings',
             subtitle: 'Manage your data and visibility',
-            onTap: () => _showComingSoon(context),
+            onTap: () => Navigator.push(
+              context,
+              MaterialPageRoute(builder: (_) => const PrivacySettingsScreen()),
+            ),
           ),
           _MenuTile(
             icon: Icons.location_on_outlined,
             iconColor: const Color(0xFF1B5E20),
             title: 'Location Access',
             subtitle: 'Control when the app uses your location',
-            onTap: () => _showComingSoon(context),
+            onTap: () => ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('Open your device Settings → Apps → ResQConnect → Permissions to manage location access.'),
+                behavior: SnackBarBehavior.floating,
+                duration: Duration(seconds: 4),
+              ),
+            ),
           ),
 
           const SizedBox(height: 8),
@@ -512,19 +541,26 @@ class _HamburgerMenuScreenState extends State<HamburgerMenuScreen> {
 // SUB-WIDGETS
 // =============================================================================
 
-class _ProfileHeaderTile extends StatelessWidget {
+class _ProfileHeaderTile extends StatefulWidget {
   final UserModel? user;
   const _ProfileHeaderTile({required this.user});
 
+  @override
+  State<_ProfileHeaderTile> createState() => _ProfileHeaderTileState();
+}
+
+class _ProfileHeaderTileState extends State<_ProfileHeaderTile> {
+  bool _uploadingPhoto = false;
+
   String _initials() {
-    final f = user?.firstName ?? '';
-    final l = user?.lastName ?? '';
+    final f = widget.user?.firstName ?? '';
+    final l = widget.user?.lastName ?? '';
     return ((f.isNotEmpty ? f[0] : '') + (l.isNotEmpty ? l[0] : ''))
         .toUpperCase();
   }
 
   Color _roleColor() {
-    switch (user?.role.toLowerCase()) {
+    switch (widget.user?.role.toLowerCase()) {
       case 'admin':
         return const Color(0xFF0D47A1);
       case 'rescuer':
@@ -537,33 +573,91 @@ class _ProfileHeaderTile extends StatelessWidget {
   }
 
   String _roleLabel() {
-    final r = user?.role ?? 'citizen';
+    final r = widget.user?.role ?? 'citizen';
     return r[0].toUpperCase() + r.substring(1);
+  }
+
+  Future<void> _pickAndUploadPhoto() async {
+    final uid = widget.user?.uid;
+    if (uid == null) return;
+    final picked = await ImagePicker().pickImage(
+      source: ImageSource.gallery,
+      imageQuality: 75,
+    );
+    if (picked == null || !mounted) return;
+    setState(() => _uploadingPhoto = true);
+    try {
+      final url = await StorageService.instance.uploadProfilePhoto(uid, File(picked.path));
+      await FirestoreService.instance.updateUserField(uid, 'photo_url', url);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Profile photo updated!')),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to upload photo: $e')),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _uploadingPhoto = false);
+    }
   }
 
   @override
   Widget build(BuildContext context) {
+    final color = _roleColor();
     return Container(
       color: Colors.white,
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 20),
       child: Row(
         children: [
-          CircleAvatar(
-            radius: 34,
-            backgroundColor: _roleColor().withValues(alpha: 0.15),
-            backgroundImage: user?.photoUrl != null
-                ? CachedNetworkImageProvider(user!.photoUrl!)
-                : null,
-            child: user?.photoUrl == null
-                ? Text(
-              _initials().isNotEmpty ? _initials() : '?',
-              style: TextStyle(
-                fontSize: 22,
-                fontWeight: FontWeight.bold,
-                color: _roleColor(),
-              ),
-            )
-                : null,
+          GestureDetector(
+            onTap: _uploadingPhoto ? null : _pickAndUploadPhoto,
+            child: Stack(
+              children: [
+                CircleAvatar(
+                  radius: 34,
+                  backgroundColor: color.withValues(alpha: 0.15),
+                  backgroundImage: widget.user?.photoUrl != null
+                      ? CachedNetworkImageProvider(widget.user!.photoUrl!)
+                      : null,
+                  child: widget.user?.photoUrl == null
+                      ? Text(
+                    _initials().isNotEmpty ? _initials() : '?',
+                    style: TextStyle(
+                      fontSize: 22,
+                      fontWeight: FontWeight.bold,
+                      color: color,
+                    ),
+                  )
+                      : null,
+                ),
+                Positioned(
+                  bottom: 0,
+                  right: 0,
+                  child: Container(
+                    padding: const EdgeInsets.all(4),
+                    decoration: BoxDecoration(
+                      color: color,
+                      shape: BoxShape.circle,
+                      border: Border.all(color: Colors.white, width: 2),
+                    ),
+                    child: _uploadingPhoto
+                        ? const SizedBox(
+                      width: 10,
+                      height: 10,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: Colors.white,
+                      ),
+                    )
+                        : const Icon(Icons.camera_alt, size: 10, color: Colors.white),
+                  ),
+                ),
+              ],
+            ),
           ),
           const SizedBox(width: 14),
           Expanded(
@@ -571,7 +665,7 @@ class _ProfileHeaderTile extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  user?.displayName ?? user?.name ?? 'User',
+                  widget.user?.displayName ?? widget.user?.name ?? 'User',
                   style: const TextStyle(
                     fontSize: 17,
                     fontWeight: FontWeight.bold,
@@ -580,7 +674,7 @@ class _ProfileHeaderTile extends StatelessWidget {
                 ),
                 const SizedBox(height: 2),
                 Text(
-                  user?.email ?? '—',
+                  widget.user?.email ?? '—',
                   style: const TextStyle(
                     fontSize: 13,
                     color: AppTheme.textSecondary,
@@ -593,7 +687,7 @@ class _ProfileHeaderTile extends StatelessWidget {
                     vertical: 3,
                   ),
                   decoration: BoxDecoration(
-                    color: _roleColor().withValues(alpha: 0.12),
+                    color: color.withValues(alpha: 0.12),
                     borderRadius: BorderRadius.circular(20),
                   ),
                   child: Text(
@@ -601,7 +695,7 @@ class _ProfileHeaderTile extends StatelessWidget {
                     style: TextStyle(
                       fontSize: 11,
                       fontWeight: FontWeight.bold,
-                      color: _roleColor(),
+                      color: color,
                     ),
                   ),
                 ),

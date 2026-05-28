@@ -1,7 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
-import 'package:timeago/timeago.dart' as timeago;
 import 'package:intl/intl.dart';
 
 import '../../models/mission_model.dart';
@@ -78,17 +77,16 @@ class MissionHistoryScreen extends StatelessWidget {
           }
 
           final allMissions = snapshot.data ?? [];
-          final shown =
-              allMissions
-                  .where(
-                    (m) => m.status == 'completed' || m.status == 'cancelled',
-                  )
-                  .toList()
-                ..sort(
+          final shown = allMissions
+              .where(
+                (m) => m.status == 'completed' || m.status == 'cancelled',
+          )
+              .toList()
+            ..sort(
                   (a, b) => (b.createdAt ?? DateTime(0)).compareTo(
-                    a.createdAt ?? DateTime(0),
-                  ),
-                );
+                a.createdAt ?? DateTime(0),
+              ),
+            );
 
           final completed = shown.where((m) => m.status == 'completed').length;
           final cancelled = shown.where((m) => m.status == 'cancelled').length;
@@ -97,10 +95,10 @@ class MissionHistoryScreen extends StatelessWidget {
           final durations = shown
               .where(
                 (m) =>
-                    m.status == 'completed' &&
-                    m.createdAt != null &&
-                    m.completedAt != null,
-              )
+            m.status == 'completed' &&
+                m.createdAt != null &&
+                m.completedAt != null,
+          )
               .map((m) => m.completedAt!.difference(m.createdAt!).inMinutes)
               .toList();
           final avgDuration = durations.isEmpty
@@ -145,13 +143,13 @@ class MissionHistoryScreen extends StatelessWidget {
                 child: shown.isEmpty
                     ? _buildEmptyState()
                     : ListView.separated(
-                        padding: const EdgeInsets.all(12),
-                        itemCount: shown.length,
-                        separatorBuilder: (_, __) => const SizedBox(height: 10),
-                        itemBuilder: (context, index) {
-                          return _MissionHistoryCard(mission: shown[index]);
-                        },
-                      ),
+                  padding: const EdgeInsets.all(12),
+                  itemCount: shown.length,
+                  separatorBuilder: (_, __) => const SizedBox(height: 10),
+                  itemBuilder: (context, index) {
+                    return _MissionHistoryCard(mission: shown[index]);
+                  },
+                ),
               ),
             ],
           );
@@ -228,6 +226,13 @@ class MissionHistoryScreen extends StatelessWidget {
 // MISSION HISTORY CARD
 // =============================================================================
 
+// Helper data class for the FutureBuilder
+class _MissionCardData {
+  final SOSRequestModel? sos;
+  final String citizenName;
+  const _MissionCardData({required this.sos, required this.citizenName});
+}
+
 class _MissionHistoryCard extends StatelessWidget {
   final MissionModel mission;
   const _MissionHistoryCard({required this.mission});
@@ -263,32 +268,57 @@ class _MissionHistoryCard extends StatelessWidget {
     return DateFormat('MMM d, yyyy · h:mm a').format(dt);
   }
 
+  Future<_MissionCardData> _fetchCardData(String? sosId) async {
+    SOSRequestModel? sos;
+    String citizenName = 'Unknown Citizen';
+    if (sosId == null || sosId.isEmpty) {
+      return _MissionCardData(sos: sos, citizenName: citizenName);
+    }
+    try {
+      final sosDoc = await FirebaseFirestore.instance
+          .collection('sos_requests')
+          .doc(sosId)
+          .get();
+      if (sosDoc.exists) {
+        sos = SOSRequestModel.fromFirestore(sosDoc);
+        final storedName = sos.citizenName.trim();
+        if (storedName.isNotEmpty) {
+          citizenName = storedName;
+        } else if (sos.citizenId.isNotEmpty) {
+          // citizenName field is blank — look up from users collection
+          final userDoc = await FirebaseFirestore.instance
+              .collection('users')
+              .doc(sos.citizenId)
+              .get();
+          if (userDoc.exists) {
+            final uData = userDoc.data() as Map<String, dynamic>;
+            final firstName = uData['first_name'] as String? ?? '';
+            final lastName = uData['last_name'] as String? ?? '';
+            final full = '$firstName $lastName'.trim();
+            if (full.isNotEmpty) citizenName = full;
+          }
+        }
+      }
+    } catch (_) {}
+    return _MissionCardData(sos: sos, citizenName: citizenName);
+  }
+
   @override
   Widget build(BuildContext context) {
     final color = _statusColor(mission.status);
 
-    return FutureBuilder<DocumentSnapshot>(
-      future: FirebaseFirestore.instance
-          .collection('sos_requests')
-          .doc(mission.sosId)
-          .get(),
+    return FutureBuilder<_MissionCardData>(
+      future: _fetchCardData(mission.sosId),
       builder: (context, snapshot) {
-        SOSRequestModel? sos;
-        if (snapshot.hasData && snapshot.data!.exists) {
-          sos = SOSRequestModel.fromFirestore(snapshot.data!);
-        }
-
-        final citizenName = sos?.citizenName.trim().isNotEmpty == true
-            ? sos!.citizenName
-            : 'Unknown Citizen';
+        SOSRequestModel? sos = snapshot.data?.sos;
+        final citizenName = snapshot.data?.citizenName ?? 'Loading...';
 
         final description = sos?.description?.trim().isNotEmpty == true
             ? sos!.description!
             : null;
 
-        final address = sos?.address?.trim().isNotEmpty == true
-            ? sos!.address!
-            : null;
+        final address =
+        sos?.address?.trim().isNotEmpty == true ? sos!.address! : null;
 
         return Card(
           elevation: 2,

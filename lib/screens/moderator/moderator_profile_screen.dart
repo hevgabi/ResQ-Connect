@@ -1,9 +1,13 @@
+import 'dart:io';
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
 import '../../screens/settings/hamburger_menu_screen.dart';
 
 import '../../services/firestore_service.dart';
+import '../../services/storage_service.dart';
 import '../../widgets/moderator_bottom_nav.dart';
 import '../../widgets/loading_overlay.dart';
 import '../../widgets/broadcast_alert_overlay.dart';
@@ -18,6 +22,9 @@ class ModeratorProfileScreen extends StatefulWidget {
 class _ModeratorProfileScreenState extends State<ModeratorProfileScreen>
     with SingleTickerProviderStateMixin {
   final String uid = FirebaseAuth.instance.currentUser!.uid;
+  final StorageService _storageService = StorageService.instance;
+  final ImagePicker _imagePicker = ImagePicker();
+  bool _uploadingPhoto = false;
 
   Map<String, dynamic>? _userData;
   bool _loading = true;
@@ -62,6 +69,35 @@ class _ModeratorProfileScreenState extends State<ModeratorProfileScreen>
     _lastNameController.dispose();
     _phoneController.dispose();
     super.dispose();
+  }
+
+  Future<void> _pickAndUploadPhoto() async {
+    final picked = await _imagePicker.pickImage(
+      source: ImageSource.gallery,
+      imageQuality: 75,
+    );
+    if (picked == null || !mounted) return;
+    setState(() => _uploadingPhoto = true);
+    try {
+      final file = File(picked.path);
+      final url = await _storageService.uploadProfilePhoto(uid, file);
+      await FirestoreService.instance.updateUserField(uid, 'photo_url', url);
+      if (mounted) {
+        // Reload data so avatar updates
+        await _loadData();
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Profile photo updated!')),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to upload photo: $e')),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _uploadingPhoto = false);
+    }
   }
 
   Future<void> _loadData() async {
@@ -124,8 +160,8 @@ class _ModeratorProfileScreenState extends State<ModeratorProfileScreen>
         'last_name': _lastNameController.text.trim(),
         'phone': _phoneController.text.trim(),
         'display_name':
-            '${_firstNameController.text.trim()} ${_lastNameController.text.trim()}'
-                .trim(),
+        '${_firstNameController.text.trim()} ${_lastNameController.text.trim()}'
+            .trim(),
       });
       if (mounted) {
         setState(() => _editing = false);
@@ -204,15 +240,15 @@ class _ModeratorProfileScreenState extends State<ModeratorProfileScreen>
             _loading
                 ? const Center(child: CircularProgressIndicator())
                 : NestedScrollView(
-                    headerSliverBuilder: (context, innerBoxIsScrolled) => [
-                      SliverToBoxAdapter(child: _buildFbHeader()),
-                      SliverToBoxAdapter(child: _buildTabBar()),
-                    ],
-                    body: TabBarView(
-                      controller: _tabController,
-                      children: [_buildActivityTab(), _buildAboutTab()],
-                    ),
-                  ),
+              headerSliverBuilder: (context, innerBoxIsScrolled) => [
+                SliverToBoxAdapter(child: _buildFbHeader()),
+                SliverToBoxAdapter(child: _buildTabBar()),
+              ],
+              body: TabBarView(
+                controller: _tabController,
+                children: [_buildActivityTab(), _buildAboutTab()],
+              ),
+            ),
             const BroadcastAlertOverlay(topOffset: 12),
           ],
         ),
@@ -253,22 +289,56 @@ class _ModeratorProfileScreenState extends State<ModeratorProfileScreen>
               Positioned(
                 bottom: -36,
                 left: 16,
-                child: Container(
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    border: Border.all(color: _cardBg, width: 4),
-                  ),
-                  child: CircleAvatar(
-                    radius: 48,
-                    backgroundColor: _modPurple.withValues(alpha: 0.2),
-                    child: Text(
-                      initials,
-                      style: const TextStyle(
-                        fontSize: 32,
-                        fontWeight: FontWeight.bold,
-                        color: _modPurple,
+                child: GestureDetector(
+                  onTap: _uploadingPhoto ? null : _pickAndUploadPhoto,
+                  child: Stack(
+                    children: [
+                      Container(
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          border: Border.all(color: _cardBg, width: 4),
+                        ),
+                        child: CircleAvatar(
+                          radius: 48,
+                          backgroundColor: _modPurple.withValues(alpha: 0.2),
+                          backgroundImage: (_userData?['photo_url'] as String?)?.isNotEmpty == true
+                              ? CachedNetworkImageProvider(_userData!['photo_url'] as String)
+                              : null,
+                          child: (_userData?['photo_url'] as String?)?.isNotEmpty == true
+                              ? null
+                              : Text(
+                            initials,
+                            style: const TextStyle(
+                              fontSize: 32,
+                              fontWeight: FontWeight.bold,
+                              color: _modPurple,
+                            ),
+                          ),
+                        ),
                       ),
-                    ),
+                      Positioned(
+                        bottom: 4,
+                        right: 4,
+                        child: Container(
+                          padding: const EdgeInsets.all(5),
+                          decoration: BoxDecoration(
+                            color: _modPurple,
+                            shape: BoxShape.circle,
+                            border: Border.all(color: Colors.white, width: 2),
+                          ),
+                          child: _uploadingPhoto
+                              ? const SizedBox(
+                            width: 12,
+                            height: 12,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              color: Colors.white,
+                            ),
+                          )
+                              : const Icon(Icons.camera_alt, size: 12, color: Colors.white),
+                        ),
+                      ),
+                    ],
                   ),
                 ),
               ),
@@ -403,8 +473,8 @@ class _ModeratorProfileScreenState extends State<ModeratorProfileScreen>
               final timeStr = ts != null ? _formatTimeAgo(ts) : '';
               final title =
                   (data['title'] as String?) ??
-                  (data['type'] as String?) ??
-                  'Report';
+                      (data['type'] as String?) ??
+                      'Report';
 
               return Container(
                 color: _cardBg,
@@ -588,12 +658,12 @@ class _ModeratorProfileScreenState extends State<ModeratorProfileScreen>
   }
 
   Widget _infoRow(
-    IconData icon,
-    String label,
-    TextEditingController controller,
-    bool editing, {
-    TextInputType? keyboardType,
-  }) {
+      IconData icon,
+      String label,
+      TextEditingController controller,
+      bool editing, {
+        TextInputType? keyboardType,
+      }) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 12),
       child: Row(
@@ -612,34 +682,34 @@ class _ModeratorProfileScreenState extends State<ModeratorProfileScreen>
                 const SizedBox(height: 2),
                 editing
                     ? TextField(
-                        controller: controller,
-                        keyboardType: keyboardType,
-                        style: const TextStyle(fontSize: 15),
-                        decoration: InputDecoration(
-                          isDense: true,
-                          border: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(8),
-                          ),
-                          focusedBorder: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(8),
-                            borderSide: const BorderSide(
-                              color: _modPurple,
-                              width: 2,
-                            ),
-                          ),
-                          contentPadding: const EdgeInsets.symmetric(
-                            horizontal: 10,
-                            vertical: 8,
-                          ),
-                        ),
-                      )
-                    : Text(
-                        controller.text.isEmpty ? 'Not set' : controller.text,
-                        style: const TextStyle(
-                          fontSize: 15,
-                          color: _textPrimary,
-                        ),
+                  controller: controller,
+                  keyboardType: keyboardType,
+                  style: const TextStyle(fontSize: 15),
+                  decoration: InputDecoration(
+                    isDense: true,
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    focusedBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(8),
+                      borderSide: const BorderSide(
+                        color: _modPurple,
+                        width: 2,
                       ),
+                    ),
+                    contentPadding: const EdgeInsets.symmetric(
+                      horizontal: 10,
+                      vertical: 8,
+                    ),
+                  ),
+                )
+                    : Text(
+                  controller.text.isEmpty ? 'Not set' : controller.text,
+                  style: const TextStyle(
+                    fontSize: 15,
+                    color: _textPrimary,
+                  ),
+                ),
               ],
             ),
           ),

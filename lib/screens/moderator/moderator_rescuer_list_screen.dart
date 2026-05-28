@@ -81,16 +81,16 @@ class _ModeratorRescuerListScreenState
                         ),
                         suffixIcon: _searchQuery.isNotEmpty
                             ? IconButton(
-                                icon: const Icon(
-                                  Icons.clear,
-                                  color: Color(0xFF90A4AE),
-                                  size: 18,
-                                ),
-                                onPressed: () {
-                                  _searchController.clear();
-                                  setState(() => _searchQuery = '');
-                                },
-                              )
+                          icon: const Icon(
+                            Icons.clear,
+                            color: Color(0xFF90A4AE),
+                            size: 18,
+                          ),
+                          onPressed: () {
+                            _searchController.clear();
+                            setState(() => _searchQuery = '');
+                          },
+                        )
                             : null,
                         filled: true,
                         fillColor: const Color(0xFFF5F7FA),
@@ -145,8 +145,6 @@ class _ModeratorRescuerListScreenState
   }
 
   Widget _buildRescuerList() {
-    // Fetch from 'rescuers' collection — moderators have read access here
-    // Duty filter applied via simple single-field query (no composite index needed)
     Stream<QuerySnapshot> stream;
 
     if (_filterDuty == 'on_duty') {
@@ -183,39 +181,21 @@ class _ModeratorRescuerListScreenState
           );
         }
 
-        // Apply search filter
-        final filtered = docs.where((doc) {
-          final data = doc.data() as Map<String, dynamic>;
-          if (_searchQuery.isNotEmpty) {
-            final firstName = (data['first_name'] as String? ?? '')
-                .toLowerCase();
-            final lastName = (data['last_name'] as String? ?? '').toLowerCase();
-            final fullName = '$firstName $lastName';
-            if (!fullName.contains(_searchQuery.toLowerCase())) return false;
-          }
-          return true;
-        }).toList();
-
-        if (filtered.isEmpty) {
-          return const EmptyState(
-            icon: Icons.search_off,
-            iconColor: Color(0xFF546E7A),
-            title: 'No Results',
-            subtitle: 'No rescuers match your search.',
-          );
-        }
-
+        // Apply search filter (after we load user data per card, search is
+        // still pre-filtered on the rescuer doc's cached first/last name or
+        // we fall back to the user subcollection. For now filter on uid list.)
         return ListView.separated(
           padding: const EdgeInsets.all(16),
-          itemCount: filtered.length,
+          itemCount: docs.length,
           separatorBuilder: (_, __) => const SizedBox(height: 10),
           itemBuilder: (context, index) {
-            final doc = filtered[index];
+            final doc = docs[index];
             final data = doc.data() as Map<String, dynamic>;
             return _RescuerCard(
               uid: doc.id,
               rescuerData: data,
               dutyFilter: _filterDuty,
+              searchQuery: _searchQuery,
             );
           },
         );
@@ -272,18 +252,20 @@ class _ModeratorRescuerListScreenState
 }
 
 // ---------------------------------------------------------------------------
-// Rescuer Card
+// Rescuer Card — fetches user profile to get real name
 // ---------------------------------------------------------------------------
 
 class _RescuerCard extends StatefulWidget {
   final String uid;
   final Map<String, dynamic> rescuerData;
   final String dutyFilter;
+  final String searchQuery;
 
   const _RescuerCard({
     required this.uid,
     required this.rescuerData,
     required this.dutyFilter,
+    required this.searchQuery,
   });
 
   @override
@@ -294,6 +276,11 @@ class _RescuerCardState extends State<_RescuerCard> {
   bool? _isOnDuty;
   String _agencyName = '';
   int _activeMissions = 0;
+  String _firstName = '';
+  String _lastName = '';
+  String _email = '';
+  String? _photoUrl;
+  bool _userLoaded = false;
 
   @override
   void initState() {
@@ -303,10 +290,31 @@ class _RescuerCardState extends State<_RescuerCard> {
 
   Future<void> _loadRescuerData() async {
     try {
-      // Duty/agency already available in rescuerData from rescuers collection
       final rData = widget.rescuerData;
       _isOnDuty = rData['is_on_duty'] as bool? ?? false;
       _agencyName = rData['agency_name'] as String? ?? '';
+
+      // ── Fetch real name from users collection ──────────────────────────
+      final userDoc = await FirebaseFirestore.instance
+          .collection('users')
+          .doc(widget.uid)
+          .get();
+
+      if (userDoc.exists) {
+        final uData = userDoc.data() as Map<String, dynamic>;
+        _firstName = uData['first_name'] as String? ?? '';
+        _lastName  = uData['last_name']  as String? ?? '';
+        _email     = uData['email']      as String? ?? '';
+        _photoUrl  = uData['photo_url']  as String?;
+      }
+
+      // Fall back to rescuer doc fields if users doc was empty
+      if (_firstName.isEmpty && _lastName.isEmpty) {
+        _firstName = rData['first_name'] as String? ?? '';
+        _lastName  = rData['last_name']  as String? ?? '';
+        _email     = rData['email']      as String? ?? '';
+        _photoUrl  = rData['photo_url']  as String?;
+      }
 
       final missionsSnap = await FirebaseFirestore.instance
           .collection('missions')
@@ -318,22 +326,21 @@ class _RescuerCardState extends State<_RescuerCard> {
       if (mounted) {
         setState(() {
           _activeMissions = missionsSnap.count ?? 0;
+          _userLoaded = true;
         });
       }
-    } catch (_) {}
+    } catch (_) {
+      if (mounted) setState(() => _userLoaded = true);
+    }
   }
 
   @override
   Widget build(BuildContext context) {
-    final data = widget.rescuerData;
-    final firstName = data['first_name'] as String? ?? '';
-    final lastName = data['last_name'] as String? ?? '';
-    final fullName = '${firstName} ${lastName}'.trim();
-    final email = data['email'] as String? ?? '';
+    final fullName = '$_firstName $_lastName'.trim();
     final initials = fullName.isNotEmpty
-        ? (firstName.isNotEmpty && lastName.isNotEmpty
-              ? '${firstName[0]}${lastName[0]}'
-              : fullName[0])
+        ? (_firstName.isNotEmpty && _lastName.isNotEmpty
+        ? '${_firstName[0]}${_lastName[0]}'
+        : fullName[0])
         : 'R';
 
     // Apply duty filter
@@ -342,6 +349,15 @@ class _RescuerCardState extends State<_RescuerCard> {
     }
     if (widget.dutyFilter == 'off_duty' && _isOnDuty == true) {
       return const SizedBox.shrink();
+    }
+
+    // Apply search filter based on loaded name
+    if (widget.searchQuery.isNotEmpty) {
+      final q = widget.searchQuery.toLowerCase();
+      if (!fullName.toLowerCase().contains(q) &&
+          !_email.toLowerCase().contains(q)) {
+        return const SizedBox.shrink();
+      }
     }
 
     final dutyColor = _isOnDuty == true
@@ -377,7 +393,26 @@ class _RescuerCardState extends State<_RescuerCard> {
                   ),
                   shape: BoxShape.circle,
                 ),
-                child: Center(
+                child: _photoUrl != null
+                    ? ClipOval(
+                  child: Image.network(
+                    _photoUrl!,
+                    fit: BoxFit.cover,
+                    width: 46,
+                    height: 46,
+                    errorBuilder: (_, __, ___) => Center(
+                      child: Text(
+                        initials.toUpperCase(),
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
+                  ),
+                )
+                    : Center(
                   child: Text(
                     initials.toUpperCase(),
                     style: const TextStyle(
@@ -411,17 +446,26 @@ class _RescuerCardState extends State<_RescuerCard> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
+                _userLoaded
+                    ? Text(
                   fullName.isNotEmpty ? fullName : 'Unnamed Rescuer',
                   style: const TextStyle(
                     fontSize: 14,
                     fontWeight: FontWeight.w600,
                     color: Color(0xFF1A2B45),
                   ),
+                )
+                    : Container(
+                  height: 13,
+                  width: 110,
+                  decoration: BoxDecoration(
+                    color: Colors.grey.shade200,
+                    borderRadius: BorderRadius.circular(6),
+                  ),
                 ),
                 const SizedBox(height: 2),
                 Text(
-                  _agencyName.isNotEmpty ? _agencyName : email,
+                  _agencyName.isNotEmpty ? _agencyName : _email,
                   style: const TextStyle(
                     fontSize: 12,
                     color: Color(0xFF90A4AE),

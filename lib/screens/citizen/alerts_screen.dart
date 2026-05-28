@@ -66,8 +66,8 @@ class _AlertsScreenState extends State<AlertsScreen>
 
     // Mark all unread SOS notifs as read
     FirestoreService.instance.citizenSosNotificationsStream(uid).first.then((
-      items,
-    ) {
+        items,
+        ) {
       for (final s in items) {
         FirestoreService.instance.markSosNotifRead(s['id'] as String);
       }
@@ -80,10 +80,10 @@ class _AlertsScreenState extends State<AlertsScreen>
     FirestoreService.instance
         .fetchUnreadNotificationsFromServer(uid)
         .then((notifs) {
-          for (final n in notifs) {
-            FirestoreService.instance.markReportNotifRead(n['id'] as String);
-          }
-        })
+      for (final n in notifs) {
+        FirestoreService.instance.markReportNotifRead(n['id'] as String);
+      }
+    })
         .catchError((_) {});
   }
 
@@ -341,7 +341,7 @@ class _AlertsScreenState extends State<AlertsScreen>
             if (timeStr.isNotEmpty) _DetailRow('Submitted', timeStr),
           ],
           note:
-              'A moderator will review your post shortly. You\'ll be notified once a decision is made.',
+          'A moderator will review your post shortly. You\'ll be notified once a decision is made.',
         );
       },
     );
@@ -384,7 +384,7 @@ class _AlertsScreenState extends State<AlertsScreen>
         icon = Icons.directions_run_rounded;
         title = 'Rescuer Assigned';
         message =
-            '$rescuerName has been assigned to your SOS and is on the way.';
+        '$rescuerName has been assigned to your SOS and is on the way.';
         note = 'Please stay at $address and keep your phone accessible.';
         break;
       case 'resolved':
@@ -393,7 +393,7 @@ class _AlertsScreenState extends State<AlertsScreen>
         title = 'SOS Resolved';
         message = 'Your SOS request has been marked as resolved. Stay safe!';
         note =
-            'If you still need help, please submit a new SOS request immediately.';
+        'If you still need help, please submit a new SOS request immediately.';
         break;
       case 'cancelled':
         color = _textSec;
@@ -401,7 +401,7 @@ class _AlertsScreenState extends State<AlertsScreen>
         title = 'SOS Cancelled';
         message = 'Your SOS request was cancelled.';
         note =
-            'If this was a mistake or you still need help, submit a new SOS request.';
+        'If this was a mistake or you still need help, submit a new SOS request.';
         break;
       default:
         color = _orange;
@@ -587,18 +587,23 @@ class _AlertsScreenState extends State<AlertsScreen>
                 decoration: BoxDecoration(
                   color: isNew
                       ? borderColor.withValues(alpha: 0.05)
-                      : Colors.white,
+                      : const Color(0xFFF5F7FA),
                   borderRadius: BorderRadius.circular(14),
                   border: Border(
-                    left: BorderSide(color: borderColor, width: 4),
+                    left: BorderSide(
+                      color: isNew ? borderColor : const Color(0xFFCFD8DC),
+                      width: 4,
+                    ),
                   ),
-                  boxShadow: [
+                  boxShadow: isNew
+                      ? [
                     BoxShadow(
                       color: Colors.black.withValues(alpha: 0.05),
                       blurRadius: 8,
                       offset: const Offset(0, 2),
                     ),
-                  ],
+                  ]
+                      : [],
                 ),
                 child: Row(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -622,9 +627,9 @@ class _AlertsScreenState extends State<AlertsScreen>
                                 child: Text(
                                   alert.title,
                                   style: TextStyle(
-                                    fontWeight: FontWeight.w700,
+                                    fontWeight: isNew ? FontWeight.w700 : FontWeight.w500,
                                     fontSize: 14,
-                                    color: borderColor,
+                                    color: isNew ? borderColor : const Color(0xFF90A4AE),
                                   ),
                                 ),
                               ),
@@ -704,13 +709,13 @@ class _AlertsScreenState extends State<AlertsScreen>
   // ─── Detail bottom sheets ──────────────────────────────────────────────────
 
   void _showDetailSheet(
-    BuildContext context, {
-    required Color color,
-    required IconData icon,
-    required String title,
-    required List<_DetailRow> rows,
-    required String note,
-  }) {
+      BuildContext context, {
+        required Color color,
+        required IconData icon,
+        required String title,
+        required List<_DetailRow> rows,
+        required String note,
+      }) {
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
@@ -726,11 +731,11 @@ class _AlertsScreenState extends State<AlertsScreen>
   }
 
   void _showAlertDetailSheet(
-    BuildContext context,
-    AlertModel alert, {
-    required Color borderColor,
-    required IconData iconData,
-  }) {
+      BuildContext context,
+      AlertModel alert, {
+        required Color borderColor,
+        required IconData iconData,
+      }) {
     final timeStr = alert.createdAt != null
         ? timeago.format(alert.createdAt!)
         : '';
@@ -773,16 +778,25 @@ class _AlertsScreenState extends State<AlertsScreen>
     required bool isRead,
     required VoidCallback? onTap,
   }) {
+    // Read cards appear visually muted/grayed
+    final cardColor = isRead ? const Color(0xFFF5F7FA) : color.withValues(alpha: 0.06);
+    final borderColor = isRead ? const Color(0xFFCFD8DC) : color;
+    final titleColor = isRead ? const Color(0xFF90A4AE) : color;
+    final iconColor = isRead ? const Color(0xFFB0BEC5) : color;
+    final iconBg = isRead ? const Color(0xFFECEFF1) : color.withValues(alpha: 0.1);
+
     return GestureDetector(
       onTap: onTap,
       child: Container(
         margin: const EdgeInsets.only(bottom: 10),
         padding: const EdgeInsets.all(14),
         decoration: BoxDecoration(
-          color: isRead ? Colors.white : color.withValues(alpha: 0.05),
+          color: cardColor,
           borderRadius: BorderRadius.circular(14),
-          border: Border(left: BorderSide(color: color, width: 4)),
-          boxShadow: [
+          border: Border(left: BorderSide(color: borderColor, width: 4)),
+          boxShadow: isRead
+              ? []
+              : [
             BoxShadow(
               color: Colors.black.withValues(alpha: 0.04),
               blurRadius: 8,
@@ -796,10 +810,10 @@ class _AlertsScreenState extends State<AlertsScreen>
             Container(
               padding: const EdgeInsets.all(6),
               decoration: BoxDecoration(
-                color: color.withValues(alpha: 0.1),
+                color: iconBg,
                 borderRadius: BorderRadius.circular(8),
               ),
-              child: Icon(icon, color: color, size: 18),
+              child: Icon(icon, color: iconColor, size: 18),
             ),
             const SizedBox(width: 12),
             Expanded(
@@ -812,9 +826,9 @@ class _AlertsScreenState extends State<AlertsScreen>
                         child: Text(
                           title,
                           style: TextStyle(
-                            fontWeight: FontWeight.w700,
+                            fontWeight: isRead ? FontWeight.w500 : FontWeight.w700,
                             fontSize: 14,
-                            color: color,
+                            color: titleColor,
                           ),
                         ),
                       ),
@@ -832,9 +846,9 @@ class _AlertsScreenState extends State<AlertsScreen>
                   const SizedBox(height: 4),
                   Text(
                     message,
-                    style: const TextStyle(
+                    style: TextStyle(
                       fontSize: 13,
-                      color: _textSec,
+                      color: isRead ? const Color(0xFFB0BEC5) : _textSec,
                       height: 1.4,
                     ),
                   ),
@@ -842,7 +856,10 @@ class _AlertsScreenState extends State<AlertsScreen>
                     const SizedBox(height: 4),
                     Text(
                       timeStr,
-                      style: const TextStyle(fontSize: 11, color: _textSec),
+                      style: TextStyle(
+                        fontSize: 11,
+                        color: isRead ? const Color(0xFFB0BEC5) : _textSec,
+                      ),
                     ),
                   ],
                 ],
@@ -1001,7 +1018,7 @@ class _DetailSheet extends StatelessWidget {
 
           // Detail rows
           ...rows.map(
-            (row) => Padding(
+                (row) => Padding(
               padding: const EdgeInsets.only(bottom: 12),
               child: Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
