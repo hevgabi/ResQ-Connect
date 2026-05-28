@@ -424,11 +424,15 @@ class FirestoreService {
     String moderatorId,
     String reason,
   ) async {
+    // Set status AND notif_read in a single atomic write — same reason as
+    // publishReport: prevents the race condition where the stream sees
+    // status=rejected but notif_read is still null so the toast never fires.
     await _reports.doc(reportId).update({
       'status': 'rejected',
       'rejection_reason': reason,
       'reviewed_by': moderatorId,
       'reviewed_at': FieldValue.serverTimestamp(),
+      'notif_read': false,
     });
 
     final reportDoc = await _reports.doc(reportId).get();
@@ -438,18 +442,24 @@ class FirestoreService {
     final postTitle =
         (reportData['title'] ?? reportData['type'] ?? 'Your post') as String;
 
-    if (authorId.isNotEmpty) {
-      await _reports.doc(reportId).update({'notif_read': false});
-    }
+    // notif_read already set above — no second round-trip needed.
   }
 
   Future<void> publishReport(String reportId, String moderatorId) async {
     final now = FieldValue.serverTimestamp();
 
+    // Set status AND notif_read in a single atomic write so the citizen's
+    // real-time stream (which queries for notif_read==false AND
+    // status in [published,rejected]) sees the document appear in one shot.
+    // Previously these were two separate writes which caused a race condition:
+    // the stream would fire after the first write (status=published) but
+    // notif_read was still null, so the query filter didn't match yet and
+    // the toast never appeared while the citizen was already on the home screen.
     await _reports.doc(reportId).update({
       'status': 'published',
       'moderator_id': moderatorId,
       'published_at': now,
+      'notif_read': false,
     });
 
     final reportDoc = await _reports.doc(reportId).get();
@@ -506,10 +516,8 @@ class FirestoreService {
       'comments': 0,
     });
 
-    // Notify the author by flagging notif_read = false on the report doc
-    if (authorId.isNotEmpty) {
-      await _reports.doc(reportId).update({'notif_read': false});
-    }
+    // notif_read was already set to false in the initial status update above
+    // (single atomic write). No second round-trip needed.
   }
 
   // ── Community Feed Writes ──────────────────────────────────────────────────
@@ -667,6 +675,76 @@ class FirestoreService {
     return merged.take(limit).toList();
   }
 
+  /// Stream of citizen community posts by a specific user (source='citizen_post').
+  /// Queries the `reports` collection where posts live before AND after approval.
+  /// Excludes rejected posts. Ordered by created_at descending.
+  Stream<List<Map<String, dynamic>>> userCommunityPostsStream(String uid) {
+    return _reports
+        .where('author_id', isEqualTo: uid)
+        .where('source', isEqualTo: 'citizen_post')
+        .where('status', whereIn: ['pending', 'published'])
+        .orderBy('created_at', descending: true)
+        .snapshots()
+        .map(
+          (snap) => snap.docs
+              .map(
+                (doc) => {'id': doc.id, ...doc.data() as Map<String, dynamic>},
+              )
+              .toList(),
+        );
+  }
+
+  /// Stream of incident reports by a specific user (source='incident_report').
+  /// Excludes rejected. Ordered by created_at descending.
+  Stream<List<ReportModel>> userReportsStream(String uid) {
+    return _reports
+        .where('reporter_id', isEqualTo: uid)
+        .where('source', isEqualTo: 'incident_report')
+        .where('status', whereIn: ['pending', 'published'])
+        .orderBy('created_at', descending: true)
+        .snapshots()
+        .map(
+          (snap) =>
+              snap.docs.map((doc) => ReportModel.fromFirestore(doc)).toList(),
+        );
+  }
+
+  /// Deletes a citizen post from both `reports` and `community_feed` (if published).
+  Future<void> deleteCommunityPost(String postId) async {
+    // Delete published copy + comments from community_feed if it exists
+    try {
+      final commentsSnap = await _communityFeed
+          .doc(postId)
+          .collection('comments')
+          .get();
+      for (final doc in commentsSnap.docs) {
+        await doc.reference.delete();
+      }
+      await _communityFeed.doc(postId).delete();
+    } catch (_) {
+      // May not exist in community_feed if still pending
+    }
+    // Always delete the source document from reports
+    await _reports.doc(postId).delete();
+  }
+
+  /// Deletes an incident report from `reports` and its published copy if any.
+  Future<void> deleteReport(String reportId) async {
+    try {
+      final commentsSnap = await _communityFeed
+          .doc(reportId)
+          .collection('comments')
+          .get();
+      for (final doc in commentsSnap.docs) {
+        await doc.reference.delete();
+      }
+      await _communityFeed.doc(reportId).delete();
+    } catch (_) {
+      // May not be published yet
+    }
+    await _reports.doc(reportId).delete();
+  }
+
   /// Returns the set of alert IDs the user has already seen (stored on user doc).
   Future<Set<String>> getSeenAlertIds(String uid) async {
     final doc = await _users.doc(uid).get();
@@ -683,16 +761,15 @@ class FirestoreService {
     }, SetOptions(merge: true));
   }
 
-  /// Streams all reports belonging to a citizen that have a pending notification.
-  /// Uses the existing `reports` collection so no new Firestore rules are needed.
+  /// Streams reports belonging to a citizen that have an unread notification
+  /// (notif_read == false). Once the citizen dismisses a toast, markReportNotifRead
+  /// sets notif_read = true and that doc drops out of this stream automatically,
+  /// so it can never re-fire on rebuild or hot-restart.
   Stream<List<Map<String, dynamic>>> citizenNotificationsStream(String uid) {
-    // Only stream reports that are published or rejected AND unread.
-    // Filtering status here (not just in .map) prevents pending posts from
-    // counting toward the red dot while showing nothing in the screen.
     return _reports
         .where('author_id', isEqualTo: uid)
-        .where('notif_read', isEqualTo: false)
         .where('status', whereIn: ['published', 'rejected'])
+        .where('notif_read', isEqualTo: false)
         .orderBy('created_at', descending: true)
         .limit(20)
         .snapshots()
@@ -704,17 +781,40 @@ class FirestoreService {
         );
   }
 
+  /// One-time server fetch for unread notifications — bypasses Firestore's
+  /// local cache so the toast fires immediately on first open, even when the
+  /// approval just happened and the cache hasn't caught up yet.
+  Future<List<Map<String, dynamic>>> fetchUnreadNotificationsFromServer(
+    String uid,
+  ) async {
+    final snap = await _reports
+        .where('author_id', isEqualTo: uid)
+        .where('notif_read', isEqualTo: false)
+        .where('status', whereIn: ['published', 'rejected'])
+        .orderBy('created_at', descending: true)
+        .limit(20)
+        .get(const GetOptions(source: Source.server));
+    return snap.docs.map((doc) {
+      final data = doc.data() as Map<String, dynamic>;
+      return {'id': doc.id, ...data};
+    }).toList();
+  }
+
   /// Marks a citizen's report notification as read by setting notif_read = true.
   Future<void> markReportNotifRead(String reportId) async {
     await _reports.doc(reportId).update({'notif_read': true});
   }
 
-  /// Streams a citizen's SOS requests that have an unread status notification.
-  /// A SOS notif is "unread" when [sos_notif_read == false], which is set
-  /// whenever the rescuer updates the status (assigned / resolved / cancelled).
+  /// Streams a citizen's SOS requests with meaningful statuses
+  /// (assigned / resolved / cancelled). Shows all entries so the section
+  /// never goes blank after the citizen has already seen the update.
+  /// Streams SOS requests with unread notifications for a citizen.
+  /// Only emits docs where sos_notif_read == false so the dot and list
+  /// clear automatically once the user views them.
   Stream<List<Map<String, dynamic>>> citizenSosNotificationsStream(String uid) {
     return _sosRequests
         .where('citizen_id', isEqualTo: uid)
+        .where('status', whereIn: ['assigned', 'resolved', 'cancelled'])
         .where('sos_notif_read', isEqualTo: false)
         .orderBy('updated_at', descending: true)
         .limit(20)

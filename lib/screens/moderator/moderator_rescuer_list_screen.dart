@@ -5,6 +5,7 @@ import '../settings/hamburger_menu_screen.dart';
 import '../../widgets/moderator_bottom_nav.dart';
 import '../../widgets/empty_state.dart';
 import '../../widgets/error_banner.dart';
+import '../../widgets/broadcast_alert_overlay.dart';
 
 class ModeratorRescuerListScreen extends StatefulWidget {
   const ModeratorRescuerListScreen({super.key});
@@ -53,85 +54,90 @@ class _ModeratorRescuerListScreenState
           ),
         ],
       ),
-      body: Column(
+      body: Stack(
         children: [
-          // ── Search + Filter Bar ───────────────────────────────────────
-          Container(
-            color: Colors.white,
-            padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
-            child: Column(
-              children: [
-                // Search
-                TextField(
-                  controller: _searchController,
-                  onChanged: (v) => setState(() => _searchQuery = v.trim()),
-                  decoration: InputDecoration(
-                    hintText: 'Search by name...',
-                    hintStyle: const TextStyle(
-                      fontSize: 14,
-                      color: Color(0xFF90A4AE),
-                    ),
-                    prefixIcon: const Icon(
-                      Icons.search,
-                      color: Color(0xFF90A4AE),
-                      size: 20,
-                    ),
-                    suffixIcon: _searchQuery.isNotEmpty
-                        ? IconButton(
-                            icon: const Icon(
-                              Icons.clear,
-                              color: Color(0xFF90A4AE),
-                              size: 18,
-                            ),
-                            onPressed: () {
-                              _searchController.clear();
-                              setState(() => _searchQuery = '');
-                            },
-                          )
-                        : null,
-                    filled: true,
-                    fillColor: const Color(0xFFF5F7FA),
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(12),
-                      borderSide: BorderSide.none,
-                    ),
-                    contentPadding: const EdgeInsets.symmetric(
-                      horizontal: 14,
-                      vertical: 10,
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 10),
-                // Duty filter
-                Row(
+          Column(
+            children: [
+              // ── Search + Filter Bar ───────────────────────────────────────
+              Container(
+                color: Colors.white,
+                padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
+                child: Column(
                   children: [
-                    _DutyChip(
-                      label: 'All',
-                      selected: _filterDuty == 'all',
-                      onTap: () => setState(() => _filterDuty = 'all'),
+                    // Search
+                    TextField(
+                      controller: _searchController,
+                      onChanged: (v) => setState(() => _searchQuery = v.trim()),
+                      decoration: InputDecoration(
+                        hintText: 'Search by name...',
+                        hintStyle: const TextStyle(
+                          fontSize: 14,
+                          color: Color(0xFF90A4AE),
+                        ),
+                        prefixIcon: const Icon(
+                          Icons.search,
+                          color: Color(0xFF90A4AE),
+                          size: 20,
+                        ),
+                        suffixIcon: _searchQuery.isNotEmpty
+                            ? IconButton(
+                                icon: const Icon(
+                                  Icons.clear,
+                                  color: Color(0xFF90A4AE),
+                                  size: 18,
+                                ),
+                                onPressed: () {
+                                  _searchController.clear();
+                                  setState(() => _searchQuery = '');
+                                },
+                              )
+                            : null,
+                        filled: true,
+                        fillColor: const Color(0xFFF5F7FA),
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                          borderSide: BorderSide.none,
+                        ),
+                        contentPadding: const EdgeInsets.symmetric(
+                          horizontal: 14,
+                          vertical: 10,
+                        ),
+                      ),
                     ),
-                    const SizedBox(width: 8),
-                    _DutyChip(
-                      label: '🟢 On Duty',
-                      selected: _filterDuty == 'on_duty',
-                      selectedColor: const Color(0xFF1FAA59),
-                      onTap: () => setState(() => _filterDuty = 'on_duty'),
-                    ),
-                    const SizedBox(width: 8),
-                    _DutyChip(
-                      label: '⚪ Off Duty',
-                      selected: _filterDuty == 'off_duty',
-                      selectedColor: const Color(0xFF546E7A),
-                      onTap: () => setState(() => _filterDuty = 'off_duty'),
+                    const SizedBox(height: 10),
+                    // Duty filter
+                    Row(
+                      children: [
+                        _DutyChip(
+                          label: 'All',
+                          selected: _filterDuty == 'all',
+                          onTap: () => setState(() => _filterDuty = 'all'),
+                        ),
+                        const SizedBox(width: 8),
+                        _DutyChip(
+                          label: '🟢 On Duty',
+                          selected: _filterDuty == 'on_duty',
+                          selectedColor: const Color(0xFF1FAA59),
+                          onTap: () => setState(() => _filterDuty = 'on_duty'),
+                        ),
+                        const SizedBox(width: 8),
+                        _DutyChip(
+                          label: '⚪ Off Duty',
+                          selected: _filterDuty == 'off_duty',
+                          selectedColor: const Color(0xFF546E7A),
+                          onTap: () => setState(() => _filterDuty = 'off_duty'),
+                        ),
+                      ],
                     ),
                   ],
                 ),
-              ],
-            ),
-          ),
+              ),
 
-          // ── Rescuer List ──────────────────────────────────────────────
-          Expanded(child: _buildRescuerList()),
+              // ── Rescuer List ──────────────────────────────────────────────
+              Expanded(child: _buildRescuerList()),
+            ],
+          ),
+          const BroadcastAlertOverlay(topOffset: 12),
         ],
       ),
       bottomNavigationBar: const ModeratorBottomNav(currentIndex: 3),

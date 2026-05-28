@@ -16,6 +16,8 @@ class SOSRequestModel {
   final DateTime? createdAt;
   final DateTime? updatedAt;
   final String? localBloodType; // Internal storage para sa blood type field
+  final String?
+  category; // Emergency category from SOS screen (e.g. 'medical', 'fire')
   // List of rescuer UIDs who deferred this SOS — they won't see it in their queue
   final List<String>? deferredBy;
 
@@ -35,6 +37,7 @@ class SOSRequestModel {
     this.createdAt,
     this.updatedAt,
     this.localBloodType,
+    this.category,
     this.deferredBy,
   });
 
@@ -66,9 +69,10 @@ class SOSRequestModel {
       createdAt: (data['created_at'] as Timestamp?)?.toDate(),
       updatedAt: (data['updated_at'] as Timestamp?)?.toDate(),
       localBloodType:
-      data['blood_type'] ??
+          data['blood_type'] ??
           data['bloodType'] ??
           'N/A', // Sinisigurong null-safe mula Firestore
+      category: data['category'],
       deferredBy: (data['deferred_by'] as List<dynamic>?)
           ?.map((e) => e.toString())
           .toList(),
@@ -89,7 +93,8 @@ class SOSRequestModel {
       if (assignedRescuerId != null) 'assigned_rescuer_id': assignedRescuerId,
       if (numberOfPeople != null) 'number_of_people': numberOfPeople,
       'blood_type':
-      bloodType, // Sinisigurong naka-save din sa database structure
+          bloodType, // Sinisigurong naka-save din sa database structure
+      if (category != null) 'category': category,
       if (createdAt != null) 'created_at': Timestamp.fromDate(createdAt!),
       if (updatedAt != null) 'updated_at': Timestamp.fromDate(updatedAt!),
     };

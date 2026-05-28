@@ -28,16 +28,26 @@ class _AlertsScreenState extends State<AlertsScreen>
   late final TabController _tabs;
   String? get _uid => FirebaseAuth.instance.currentUser?.uid;
 
-  // Locally track which alert IDs have been seen this session
-  Set<String> _seenAlertIds = {};
+  // Use a ValueNotifier so updating seen IDs does NOT rebuild the entire
+  // widget tree (which would remount both TabBarView children and cause the
+  // visible tab-switching slowness / rebuild).
+  final ValueNotifier<Set<String>> _seenAlertIdsNotifier = ValueNotifier(
+    <String>{},
+  );
+
+  // Convenience getter
+  Set<String> get _seenAlertIds => _seenAlertIdsNotifier.value;
 
   @override
   void initState() {
     super.initState();
     _tabs = TabController(length: 2, vsync: this);
 
-    // Load persisted seen IDs, then listen for tab switches to mark seen
+    // On open: mark personal tab items (SOS + engagement) as read immediately
+    // since the user is now viewing the notifications screen.
+    // Alerts are marked seen when the user lands on or switches to tab 1.
     _loadSeenAlerts();
+    _markPersonalNotifsRead();
     _tabs.addListener(_onTabChanged);
   }
 
@@ -45,12 +55,40 @@ class _AlertsScreenState extends State<AlertsScreen>
     final uid = _uid;
     if (uid == null) return;
     final ids = await FirestoreService.instance.getSeenAlertIds(uid);
-    if (mounted) setState(() => _seenAlertIds = ids);
+    if (mounted) _seenAlertIdsNotifier.value = ids;
+  }
+
+  /// Marks SOS notifications and engagement notifications as read as soon as
+  /// the screen opens — the user is actively viewing them.
+  Future<void> _markPersonalNotifsRead() async {
+    final uid = _uid;
+    if (uid == null) return;
+
+    // Mark all unread SOS notifs as read
+    FirestoreService.instance.citizenSosNotificationsStream(uid).first.then((
+      items,
+    ) {
+      for (final s in items) {
+        FirestoreService.instance.markSosNotifRead(s['id'] as String);
+      }
+    });
+
+    // Mark all engagement (likes/comments) notifs as read
+    FirestoreService.instance.markEngagementNotifsRead(uid);
+
+    // Mark unread report notifs (approved/rejected) as read
+    FirestoreService.instance
+        .fetchUnreadNotificationsFromServer(uid)
+        .then((notifs) {
+          for (final n in notifs) {
+            FirestoreService.instance.markReportNotifRead(n['id'] as String);
+          }
+        })
+        .catchError((_) {});
   }
 
   void _onTabChanged() {
-    // When the user switches to the Community Alerts tab, mark all current
-    // alerts as seen so the home-screen dot clears
+    // When the user lands on/switches to Community Alerts tab, mark all seen
     if (_tabs.index == 1) {
       _markAllAlertsSeen();
     }
@@ -59,12 +97,11 @@ class _AlertsScreenState extends State<AlertsScreen>
   Future<void> _markAllAlertsSeen() async {
     final uid = _uid;
     if (uid == null) return;
-    // Get the latest alerts and persist their IDs
     FirestoreService.instance.alertsStream().first.then((alerts) {
       final ids = alerts.map((a) => a.id).toList();
       if (ids.isNotEmpty) {
         FirestoreService.instance.markAlertsAsSeen(uid, ids);
-        if (mounted) setState(() => _seenAlertIds = ids.toSet());
+        if (mounted) _seenAlertIdsNotifier.value = ids.toSet();
       }
     });
   }
@@ -73,6 +110,7 @@ class _AlertsScreenState extends State<AlertsScreen>
   void dispose() {
     _tabs.removeListener(_onTabChanged);
     _tabs.dispose();
+    _seenAlertIdsNotifier.dispose();
     super.dispose();
   }
 
@@ -500,9 +538,7 @@ class _AlertsScreenState extends State<AlertsScreen>
               FirestoreService.instance.markAlertsAsSeen(uid, ids);
               // Schedule the setState outside of the build phase
               WidgetsBinding.instance.addPostFrameCallback((_) {
-                if (mounted) {
-                  setState(() => _seenAlertIds = ids.toSet());
-                }
+                if (mounted) _seenAlertIdsNotifier.value = ids.toSet();
               });
             }
           }

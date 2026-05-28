@@ -8,6 +8,7 @@ import '../../providers/auth_provider.dart';
 import '../../widgets/moderator_bottom_nav.dart';
 import '../../widgets/empty_state.dart';
 import '../../widgets/error_banner.dart';
+import '../../widgets/broadcast_alert_overlay.dart';
 
 class ModeratorActivityLogsScreen extends StatefulWidget {
   const ModeratorActivityLogsScreen({super.key});
@@ -78,9 +79,14 @@ class _ModeratorActivityLogsScreenState
           ),
         ),
       ),
-      body: uid.isEmpty
-          ? const Center(child: Text('Not logged in'))
-          : _buildLogs(uid),
+      body: Stack(
+        children: [
+          uid.isEmpty
+              ? const Center(child: Text('Not logged in'))
+              : _buildLogs(uid),
+          const BroadcastAlertOverlay(topOffset: 12),
+        ],
+      ),
       bottomNavigationBar: const ModeratorBottomNav(currentIndex: 5),
     );
   }

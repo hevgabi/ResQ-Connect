@@ -6,6 +6,7 @@ import '../../screens/settings/hamburger_menu_screen.dart';
 import '../../services/firestore_service.dart';
 import '../../widgets/moderator_bottom_nav.dart';
 import '../../widgets/loading_overlay.dart';
+import '../../widgets/broadcast_alert_overlay.dart';
 
 class ModeratorProfileScreen extends StatefulWidget {
   const ModeratorProfileScreen({super.key});
@@ -14,7 +15,8 @@ class ModeratorProfileScreen extends StatefulWidget {
   State<ModeratorProfileScreen> createState() => _ModeratorProfileScreenState();
 }
 
-class _ModeratorProfileScreenState extends State<ModeratorProfileScreen> {
+class _ModeratorProfileScreenState extends State<ModeratorProfileScreen>
+    with SingleTickerProviderStateMixin {
   final String uid = FirebaseAuth.instance.currentUser!.uid;
 
   Map<String, dynamic>? _userData;
@@ -22,6 +24,7 @@ class _ModeratorProfileScreenState extends State<ModeratorProfileScreen> {
   bool _editing = false;
   bool _saving = false;
 
+  late TabController _tabController;
   late TextEditingController _firstNameController;
   late TextEditingController _lastNameController;
   late TextEditingController _phoneController;
@@ -31,9 +34,21 @@ class _ModeratorProfileScreenState extends State<ModeratorProfileScreen> {
   int _totalRejected = 0;
   int _totalPending = 0;
 
+  // FB-style palette
+  static const _blue = Color(0xFF1877F2);
+  static const _surface = Color(0xFFF0F2F5);
+  static const _cardBg = Colors.white;
+  static const _textPrimary = Color(0xFF050505);
+  static const _textSecondary = Color(0xFF65676B);
+  static const _divider = Color(0xFFE4E6EA);
+
+  // Moderator accent
+  static const _modPurple = Color(0xFF6A1B9A);
+
   @override
   void initState() {
     super.initState();
+    _tabController = TabController(length: 2, vsync: this);
     _firstNameController = TextEditingController();
     _lastNameController = TextEditingController();
     _phoneController = TextEditingController();
@@ -42,6 +57,7 @@ class _ModeratorProfileScreenState extends State<ModeratorProfileScreen> {
 
   @override
   void dispose() {
+    _tabController.dispose();
     _firstNameController.dispose();
     _lastNameController.dispose();
     _phoneController.dispose();
@@ -56,7 +72,6 @@ class _ModeratorProfileScreenState extends State<ModeratorProfileScreen> {
           .doc(uid)
           .get();
 
-      // Load stats
       final publishedSnap = await FirebaseFirestore.instance
           .collection('reports')
           .where('moderator_id', isEqualTo: uid)
@@ -81,9 +96,11 @@ class _ModeratorProfileScreenState extends State<ModeratorProfileScreen> {
       final uData = userSnap.data();
       setState(() {
         _userData = uData;
-        _firstNameController.text = uData?['first_name'] ?? '';
-        _lastNameController.text = uData?['last_name'] ?? '';
-        _phoneController.text = uData?['phone'] ?? '';
+        if (!_editing) {
+          _firstNameController.text = uData?['first_name'] ?? '';
+          _lastNameController.text = uData?['last_name'] ?? '';
+          _phoneController.text = uData?['phone'] ?? '';
+        }
         _totalPublished = publishedSnap.count ?? 0;
         _totalRejected = rejectedSnap.count ?? 0;
         _totalPending = pendingSnap.count ?? 0;
@@ -134,23 +151,45 @@ class _ModeratorProfileScreenState extends State<ModeratorProfileScreen> {
     }
   }
 
+  String _initials() {
+    final first = _userData?['first_name'] ?? '';
+    final last = _userData?['last_name'] ?? '';
+    final email = FirebaseAuth.instance.currentUser?.email ?? '';
+    if (first.isNotEmpty && last.isNotEmpty) {
+      return '${first[0]}${last[0]}'.toUpperCase();
+    }
+    if (first.isNotEmpty) return first[0].toUpperCase();
+    if (email.isNotEmpty) return email[0].toUpperCase();
+    return 'M';
+  }
+
+  String _fullName() {
+    final first = _userData?['first_name'] ?? '';
+    final last = _userData?['last_name'] ?? '';
+    final full = '$first $last'.trim();
+    return full.isNotEmpty ? full : 'Moderator';
+  }
+
   @override
   Widget build(BuildContext context) {
     return LoadingOverlay(
       isLoading: _saving,
       child: Scaffold(
-        backgroundColor: const Color(0xFFF5F7FA),
+        backgroundColor: _surface,
         appBar: AppBar(
-          backgroundColor: const Color(0xFF0D47A1),
+          backgroundColor: _blue,
+          foregroundColor: Colors.white,
+          elevation: 0,
           title: const Text(
             'My Profile',
             style: TextStyle(
-              color: Colors.white,
               fontWeight: FontWeight.bold,
-              fontSize: 20,
+              fontSize: 18,
+              color: Colors.white,
             ),
           ),
           automaticallyImplyLeading: false,
+          iconTheme: const IconThemeData(color: Colors.white),
           actions: [
             IconButton(
               icon: const Icon(Icons.menu, color: Colors.white),
@@ -160,138 +199,299 @@ class _ModeratorProfileScreenState extends State<ModeratorProfileScreen> {
             ),
           ],
         ),
-        body: _loading
-            ? const Center(
-                child: CircularProgressIndicator(color: Color(0xFF6A1B9A)),
-              )
-            : _buildBody(),
+        body: Stack(
+          children: [
+            _loading
+                ? const Center(child: CircularProgressIndicator())
+                : NestedScrollView(
+                    headerSliverBuilder: (context, innerBoxIsScrolled) => [
+                      SliverToBoxAdapter(child: _buildFbHeader()),
+                      SliverToBoxAdapter(child: _buildTabBar()),
+                    ],
+                    body: TabBarView(
+                      controller: _tabController,
+                      children: [_buildActivityTab(), _buildAboutTab()],
+                    ),
+                  ),
+            const BroadcastAlertOverlay(topOffset: 12),
+          ],
+        ),
         bottomNavigationBar: const ModeratorBottomNav(currentIndex: 5),
       ),
     );
   }
 
-  Widget _buildBody() {
-    final email = FirebaseAuth.instance.currentUser?.email ?? '';
-    final firstName = _userData?['first_name'] ?? '';
-    final lastName = _userData?['last_name'] ?? '';
-    final fullName = '$firstName $lastName'.trim();
-    final initials = _initials(firstName, lastName, email);
+  // ─── Facebook-style Header ────────────────────────────────────────────────
+
+  Widget _buildFbHeader() {
+    final initials = _initials();
+    final name = _fullName();
     final memberSince = (_userData?['created_at'] as Timestamp?)?.toDate();
 
-    return RefreshIndicator(
-      onRefresh: _loadData,
-      color: const Color(0xFF0D47A1),
-      child: ListView(
-        padding: const EdgeInsets.all(16),
+    return Container(
+      color: _cardBg,
+      child: Column(
         children: [
-          // ── Avatar + Name Header ──────────────────────────────────────
-          Container(
-            padding: const EdgeInsets.all(24),
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(20),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withAlpha(13),
-                  blurRadius: 10,
-                  offset: const Offset(0, 4),
-                ),
-              ],
-            ),
-            child: Column(
-              children: [
-                Container(
-                  width: 80,
-                  height: 80,
-                  decoration: BoxDecoration(
-                    gradient: const LinearGradient(
-                      colors: [Color(0xFF6A1B9A), Color(0xFF9C27B0)],
-                      begin: Alignment.topLeft,
-                      end: Alignment.bottomRight,
-                    ),
-                    shape: BoxShape.circle,
-                    boxShadow: [
-                      BoxShadow(
-                        color: const Color(0xFF0D47A1).withAlpha(76),
-                        blurRadius: 12,
-                        offset: const Offset(0, 4),
-                      ),
-                    ],
+          Stack(
+            clipBehavior: Clip.none,
+            alignment: Alignment.bottomLeft,
+            children: [
+              // Cover gradient — purple for moderators
+              Container(
+                height: 140,
+                width: double.infinity,
+                decoration: const BoxDecoration(
+                  gradient: LinearGradient(
+                    colors: [Color(0xFF4A0E78), Color(0xFF9C27B0)],
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
                   ),
-                  child: Center(
+                ),
+                child: CustomPaint(painter: _WavePainter()),
+              ),
+              // Avatar
+              Positioned(
+                bottom: -36,
+                left: 16,
+                child: Container(
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    border: Border.all(color: _cardBg, width: 4),
+                  ),
+                  child: CircleAvatar(
+                    radius: 48,
+                    backgroundColor: _modPurple.withValues(alpha: 0.2),
                     child: Text(
                       initials,
                       style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 28,
+                        fontSize: 32,
                         fontWeight: FontWeight.bold,
+                        color: _modPurple,
                       ),
                     ),
                   ),
                 ),
-                const SizedBox(height: 14),
+              ),
+            ],
+          ),
+          const SizedBox(height: 44),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
                 Text(
-                  fullName.isNotEmpty ? fullName : 'Moderator',
+                  name,
                   style: const TextStyle(
-                    fontSize: 20,
+                    fontSize: 22,
                     fontWeight: FontWeight.bold,
-                    color: Color(0xFF1A2B45),
+                    color: _textPrimary,
                   ),
                 ),
                 const SizedBox(height: 4),
                 Container(
                   padding: const EdgeInsets.symmetric(
-                    horizontal: 10,
-                    vertical: 4,
+                    horizontal: 8,
+                    vertical: 3,
                   ),
                   decoration: BoxDecoration(
-                    color: const Color(0xFF0D47A1).withAlpha(20),
-                    borderRadius: BorderRadius.circular(8),
+                    color: _modPurple.withValues(alpha: 0.1),
+                    borderRadius: BorderRadius.circular(6),
                   ),
                   child: const Text(
                     'MODERATOR',
                     style: TextStyle(
                       fontSize: 11,
                       fontWeight: FontWeight.bold,
-                      color: Color(0xFF6A1B9A),
-                      letterSpacing: 1,
+                      color: _modPurple,
+                      letterSpacing: 0.8,
                     ),
                   ),
                 ),
                 if (memberSince != null) ...[
-                  const SizedBox(height: 8),
+                  const SizedBox(height: 4),
                   Text(
                     'Member since ${_formatDate(memberSince)}',
-                    style: const TextStyle(
-                      fontSize: 12,
-                      color: Color(0xFF90A4AE),
-                    ),
+                    style: const TextStyle(fontSize: 12, color: _textSecondary),
                   ),
                 ],
               ],
             ),
           ),
-
           const SizedBox(height: 16),
+          // Quick stats row
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            child: Row(
+              children: [
+                _StatChip(
+                  icon: Icons.check_circle_outline,
+                  label: '$_totalPublished Published',
+                  color: const Color(0xFF1FAA59),
+                ),
+                const SizedBox(width: 16),
+                _StatChip(
+                  icon: Icons.cancel_outlined,
+                  label: '$_totalRejected Rejected',
+                  color: const Color(0xFFD7263D),
+                ),
+                const SizedBox(width: 16),
+                _StatChip(
+                  icon: Icons.pending_actions_outlined,
+                  label: '$_totalPending Pending',
+                  color: const Color(0xFFFF6B00),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 16),
+          const Divider(height: 1, color: _divider),
+        ],
+      ),
+    );
+  }
 
-          // ── Quick Stats ───────────────────────────────────────────────
-          Row(
+  Widget _buildTabBar() {
+    return Container(
+      color: _cardBg,
+      child: TabBar(
+        controller: _tabController,
+        labelColor: _blue,
+        unselectedLabelColor: _textSecondary,
+        labelStyle: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+        indicatorColor: _blue,
+        indicatorWeight: 3,
+        tabs: const [
+          Tab(text: 'Activity'),
+          Tab(text: 'About'),
+        ],
+      ),
+    );
+  }
+
+  // ─── Activity Tab ─────────────────────────────────────────────────────────
+
+  Widget _buildActivityTab() {
+    return RefreshIndicator(
+      onRefresh: _loadData,
+      color: _blue,
+      child: StreamBuilder<QuerySnapshot>(
+        stream: FirebaseFirestore.instance
+            .collection('reports')
+            .where('reviewed_by', isEqualTo: uid)
+            .orderBy('updated_at', descending: true)
+            .limit(20)
+            .snapshots(),
+        builder: (context, snap) {
+          if (snap.connectionState == ConnectionState.waiting) {
+            return const Center(child: CircularProgressIndicator());
+          }
+          final docs = snap.data?.docs ?? [];
+          if (docs.isEmpty) {
+            return _emptyState(
+              Icons.fact_check_outlined,
+              'No reviewed reports yet.',
+            );
+          }
+          return ListView.builder(
+            padding: const EdgeInsets.symmetric(vertical: 8),
+            itemCount: docs.length,
+            itemBuilder: (_, i) {
+              final data = docs[i].data() as Map<String, dynamic>;
+              final status = (data['status'] as String?) ?? 'pending';
+              final ts = (data['updated_at'] as Timestamp?)?.toDate();
+              final timeStr = ts != null ? _formatTimeAgo(ts) : '';
+              final title =
+                  (data['title'] as String?) ??
+                  (data['type'] as String?) ??
+                  'Report';
+
+              return Container(
+                color: _cardBg,
+                margin: const EdgeInsets.only(bottom: 8),
+                padding: const EdgeInsets.all(16),
+                child: Row(
+                  children: [
+                    Container(
+                      width: 42,
+                      height: 42,
+                      decoration: BoxDecoration(
+                        color: _reportStatusColor(
+                          status,
+                        ).withValues(alpha: 0.12),
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: Icon(
+                        Icons.article_outlined,
+                        color: _reportStatusColor(status),
+                        size: 22,
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            title,
+                            style: const TextStyle(
+                              fontWeight: FontWeight.w600,
+                              fontSize: 14,
+                              color: _textPrimary,
+                            ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                          if (timeStr.isNotEmpty)
+                            Text(
+                              timeStr,
+                              style: const TextStyle(
+                                fontSize: 12,
+                                color: _textSecondary,
+                              ),
+                            ),
+                        ],
+                      ),
+                    ),
+                    _statusPill(status),
+                  ],
+                ),
+              );
+            },
+          );
+        },
+      ),
+    );
+  }
+
+  // ─── About Tab ─────────────────────────────────────────────────────────────
+
+  Widget _buildAboutTab() {
+    final email = FirebaseAuth.instance.currentUser?.email ?? '';
+
+    return ListView(
+      padding: const EdgeInsets.symmetric(vertical: 8),
+      children: [
+        // Stats cards
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+          child: Row(
             children: [
-              _StatCard(
+              _FullStatCard(
                 label: 'Published',
                 value: '$_totalPublished',
                 color: const Color(0xFF1FAA59),
                 icon: Icons.check_circle_outline,
               ),
-              const SizedBox(width: 10),
-              _StatCard(
+              const SizedBox(width: 8),
+              _FullStatCard(
                 label: 'Rejected',
                 value: '$_totalRejected',
                 color: const Color(0xFFD7263D),
                 icon: Icons.cancel_outlined,
               ),
-              const SizedBox(width: 10),
-              _StatCard(
+              const SizedBox(width: 8),
+              _FullStatCard(
                 label: 'Pending',
                 value: '$_totalPending',
                 color: const Color(0xFFFF6B00),
@@ -299,94 +499,223 @@ class _ModeratorProfileScreenState extends State<ModeratorProfileScreen> {
               ),
             ],
           ),
+        ),
+        const SizedBox(height: 4),
+        // Personal info
+        Container(
+          color: _cardBg,
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  const Text(
+                    'Personal Info',
+                    style: TextStyle(
+                      fontWeight: FontWeight.bold,
+                      fontSize: 17,
+                      color: _textPrimary,
+                    ),
+                  ),
+                  TextButton(
+                    onPressed: () {
+                      if (_editing) {
+                        _saveProfile();
+                      } else {
+                        setState(() => _editing = true);
+                      }
+                    },
+                    child: Text(
+                      _editing ? 'Save' : 'Edit',
+                      style: const TextStyle(
+                        color: _blue,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              _infoRow(
+                Icons.person_outline,
+                'First Name',
+                _firstNameController,
+                _editing,
+              ),
+              _infoRow(
+                Icons.badge_outlined,
+                'Last Name',
+                _lastNameController,
+                _editing,
+              ),
+              _infoRow(
+                Icons.phone_outlined,
+                'Phone',
+                _phoneController,
+                _editing,
+                keyboardType: TextInputType.phone,
+              ),
+              _readonlyRow(Icons.email_outlined, 'Email', email),
+            ],
+          ),
+        ),
+        const SizedBox(height: 24),
+      ],
+    );
+  }
 
-          const SizedBox(height: 16),
+  // ─── Shared helpers ──────────────────────────────────────────────────────
 
-          // ── Personal Info Card ────────────────────────────────────────
-          Container(
-            padding: const EdgeInsets.all(16),
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(16),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withAlpha(13),
-                  blurRadius: 8,
-                  offset: const Offset(0, 3),
-                ),
-              ],
+  Widget _emptyState(IconData icon, String message) {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(40),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, size: 56, color: _textSecondary.withValues(alpha: 0.5)),
+            const SizedBox(height: 16),
+            Text(
+              message,
+              style: const TextStyle(color: _textSecondary, fontSize: 15),
             ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _infoRow(
+    IconData icon,
+    String label,
+    TextEditingController controller,
+    bool editing, {
+    TextInputType? keyboardType,
+  }) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(icon, color: _textSecondary, size: 20),
+          const SizedBox(width: 12),
+          Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    const Text(
-                      'Personal Info',
-                      style: TextStyle(
-                        fontSize: 15,
-                        fontWeight: FontWeight.bold,
-                        color: Color(0xFF1A2B45),
+                Text(
+                  label,
+                  style: const TextStyle(fontSize: 11, color: _textSecondary),
+                ),
+                const SizedBox(height: 2),
+                editing
+                    ? TextField(
+                        controller: controller,
+                        keyboardType: keyboardType,
+                        style: const TextStyle(fontSize: 15),
+                        decoration: InputDecoration(
+                          isDense: true,
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          focusedBorder: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(8),
+                            borderSide: const BorderSide(
+                              color: _modPurple,
+                              width: 2,
+                            ),
+                          ),
+                          contentPadding: const EdgeInsets.symmetric(
+                            horizontal: 10,
+                            vertical: 8,
+                          ),
+                        ),
+                      )
+                    : Text(
+                        controller.text.isEmpty ? 'Not set' : controller.text,
+                        style: const TextStyle(
+                          fontSize: 15,
+                          color: _textPrimary,
+                        ),
                       ),
-                    ),
-                    TextButton.icon(
-                      onPressed: () {
-                        if (_editing) {
-                          _saveProfile();
-                        } else {
-                          setState(() => _editing = true);
-                        }
-                      },
-                      icon: Icon(
-                        _editing ? Icons.save_outlined : Icons.edit_outlined,
-                        size: 16,
-                      ),
-                      label: Text(_editing ? 'Save' : 'Edit'),
-                      style: TextButton.styleFrom(
-                        foregroundColor: const Color(0xFF0D47A1),
-                      ),
-                    ),
-                  ],
-                ),
-                const Divider(height: 16),
-                _ProfileField(
-                  label: 'First Name',
-                  controller: _firstNameController,
-                  editing: _editing,
-                ),
-                const SizedBox(height: 12),
-                _ProfileField(
-                  label: 'Last Name',
-                  controller: _lastNameController,
-                  editing: _editing,
-                ),
-                const SizedBox(height: 12),
-                _ProfileField(
-                  label: 'Phone',
-                  controller: _phoneController,
-                  editing: _editing,
-                  keyboardType: TextInputType.phone,
-                ),
-                const SizedBox(height: 12),
-                _ReadonlyField(label: 'Email', value: email),
               ],
             ),
           ),
-
-          const SizedBox(height: 24),
         ],
       ),
     );
   }
 
-  String _initials(String firstName, String lastName, String email) {
-    if (firstName.isNotEmpty && lastName.isNotEmpty) {
-      return '${firstName[0]}${lastName[0]}'.toUpperCase();
+  Widget _readonlyRow(IconData icon, String label, String value) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(icon, color: _textSecondary, size: 20),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  label,
+                  style: const TextStyle(fontSize: 11, color: _textSecondary),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  value.isNotEmpty ? value : 'Not set',
+                  style: const TextStyle(fontSize: 15, color: _textPrimary),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _statusPill(String status) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+      decoration: BoxDecoration(
+        color: _reportStatusColor(status).withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(20),
+      ),
+      child: Text(
+        status.toUpperCase(),
+        style: TextStyle(
+          color: _reportStatusColor(status),
+          fontSize: 10,
+          fontWeight: FontWeight.bold,
+        ),
+      ),
+    );
+  }
+
+  Color _reportStatusColor(String status) {
+    switch (status.toLowerCase()) {
+      case 'published':
+        return const Color(0xFF1FAA59);
+      case 'rejected':
+        return const Color(0xFFD7263D);
+      case 'pending':
+        return const Color(0xFFFF6B00);
+      default:
+        return _textSecondary;
     }
-    if (firstName.isNotEmpty) return firstName[0].toUpperCase();
-    if (email.isNotEmpty) return email[0].toUpperCase();
-    return 'M';
+  }
+
+  String _formatTimeAgo(DateTime dt) {
+    final diff = DateTime.now().difference(dt);
+    if (diff.inDays > 365) return '${(diff.inDays / 365).floor()}y ago';
+    if (diff.inDays > 30) return '${(diff.inDays / 30).floor()}mo ago';
+    if (diff.inDays > 0) return '${diff.inDays}d ago';
+    if (diff.inHours > 0) return '${diff.inHours}h ago';
+    if (diff.inMinutes > 0) return '${diff.inMinutes}m ago';
+    return 'Just now';
   }
 
   String _formatDate(DateTime dt) {
@@ -408,17 +737,48 @@ class _ModeratorProfileScreenState extends State<ModeratorProfileScreen> {
   }
 }
 
-// ---------------------------------------------------------------------------
-// Stat Card
-// ---------------------------------------------------------------------------
+// ─── Stat chip (header row) ──────────────────────────────────────────────────
 
-class _StatCard extends StatelessWidget {
+class _StatChip extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final Color color;
+
+  const _StatChip({
+    required this.icon,
+    required this.label,
+    required this.color,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(icon, size: 14, color: color),
+        const SizedBox(width: 4),
+        Text(
+          label,
+          style: TextStyle(
+            fontSize: 12,
+            color: color,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+// ─── Full stat card (About tab) ───────────────────────────────────────────────
+
+class _FullStatCard extends StatelessWidget {
   final String label;
   final String value;
   final Color color;
   final IconData icon;
 
-  const _StatCard({
+  const _FullStatCard({
     required this.label,
     required this.value,
     required this.color,
@@ -435,7 +795,7 @@ class _StatCard extends StatelessWidget {
           borderRadius: BorderRadius.circular(14),
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withAlpha(13),
+              color: Colors.black.withValues(alpha: 0.05),
               blurRadius: 8,
               offset: const Offset(0, 3),
             ),
@@ -465,85 +825,54 @@ class _StatCard extends StatelessWidget {
   }
 }
 
-// ---------------------------------------------------------------------------
-// Profile Field
-// ---------------------------------------------------------------------------
+// ─── Cover wave painter ───────────────────────────────────────────────────────
 
-class _ProfileField extends StatelessWidget {
-  final String label;
-  final TextEditingController controller;
-  final bool editing;
-  final TextInputType? keyboardType;
+class _WavePainter extends CustomPainter {
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint()
+      ..color = Colors.white.withValues(alpha: 0.08)
+      ..style = PaintingStyle.fill;
 
-  const _ProfileField({
-    required this.label,
-    required this.controller,
-    required this.editing,
-    this.keyboardType,
-  });
+    final path = Path()
+      ..moveTo(0, size.height * 0.6)
+      ..quadraticBezierTo(
+        size.width * 0.25,
+        size.height * 0.4,
+        size.width * 0.5,
+        size.height * 0.65,
+      )
+      ..quadraticBezierTo(
+        size.width * 0.75,
+        size.height * 0.9,
+        size.width,
+        size.height * 0.55,
+      )
+      ..lineTo(size.width, size.height)
+      ..lineTo(0, size.height)
+      ..close();
+    canvas.drawPath(path, paint);
+
+    final path2 = Path()
+      ..moveTo(0, size.height * 0.8)
+      ..quadraticBezierTo(
+        size.width * 0.3,
+        size.height * 0.6,
+        size.width * 0.6,
+        size.height * 0.85,
+      )
+      ..quadraticBezierTo(
+        size.width * 0.8,
+        size.height * 1.0,
+        size.width,
+        size.height * 0.75,
+      )
+      ..lineTo(size.width, size.height)
+      ..lineTo(0, size.height)
+      ..close();
+    canvas.drawPath(path2, paint..color = Colors.white.withValues(alpha: 0.05));
+  }
 
   @override
-  Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          label,
-          style: const TextStyle(fontSize: 12, color: Color(0xFF90A4AE)),
-        ),
-        const SizedBox(height: 4),
-        editing
-            ? TextField(
-                controller: controller,
-                keyboardType: keyboardType,
-                decoration: InputDecoration(
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(10),
-                    borderSide: const BorderSide(color: Color(0xFF6A1B9A)),
-                  ),
-                  focusedBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(10),
-                    borderSide: const BorderSide(
-                      color: Color(0xFF6A1B9A),
-                      width: 2,
-                    ),
-                  ),
-                  contentPadding: const EdgeInsets.symmetric(
-                    horizontal: 12,
-                    vertical: 10,
-                  ),
-                ),
-              )
-            : Text(
-                controller.text.isNotEmpty ? controller.text : 'Not set',
-                style: const TextStyle(fontSize: 15, color: Color(0xFF37474F)),
-              ),
-      ],
-    );
-  }
-}
-
-class _ReadonlyField extends StatelessWidget {
-  final String label;
-  final String value;
-
-  const _ReadonlyField({required this.label, required this.value});
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          label,
-          style: const TextStyle(fontSize: 12, color: Color(0xFF90A4AE)),
-        ),
-        const SizedBox(height: 4),
-        Text(
-          value.isNotEmpty ? value : 'N/A',
-          style: const TextStyle(fontSize: 15, color: Color(0xFF37474F)),
-        ),
-      ],
-    );
-  }
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }

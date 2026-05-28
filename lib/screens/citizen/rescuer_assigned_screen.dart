@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:math';
+import 'dart:ui' as ui;
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
@@ -53,13 +54,15 @@ class _RescuerAssignedScreenState extends State<RescuerAssignedScreen>
   GoogleMapController? _mapController;
   final Set<Marker> _markers = {};
   final Set<Polyline> _polylines = {};
+  BitmapDescriptor? _rescuerIcon;
 
   late AnimationController _pulseController;
   late Animation<double> _pulseAnimation;
 
   bool _loadingRescuer = false;
 
-  // Track whether we've already shown the arrived review sheet
+  // Track whether we've already shown the arrived banner / review sheet
+  bool _onSiteShown = false;
   bool _arrivedSheetShown = false;
 
   @override
@@ -78,8 +81,8 @@ class _RescuerAssignedScreenState extends State<RescuerAssignedScreen>
 
   void _listenToSos() {
     _sosSubscription = _firestoreService.sosRequestStream(widget.sosId).listen((
-        sos,
-        ) {
+      sos,
+    ) {
       if (!mounted) return;
       setState(() {
         _sosRequest = sos;
@@ -92,9 +95,8 @@ class _RescuerAssignedScreenState extends State<RescuerAssignedScreen>
       if (sos.assignedRescuerId != null && !_loadingRescuer) {
         _loadRescuerAndListen(sos.assignedRescuerId!);
       }
-      // Auto-show review sheet when rescuer marks arrived
-      if ((sos.status == 'resolved' || sos.status == 'arrived') &&
-          !_arrivedSheetShown) {
+      // Show review sheet only when the mission is fully resolved
+      if (sos.status == 'resolved' && !_arrivedSheetShown) {
         _arrivedSheetShown = true;
         // Small delay so the UI settles first
         Future.delayed(const Duration(milliseconds: 800), () {
@@ -122,21 +124,21 @@ class _RescuerAssignedScreenState extends State<RescuerAssignedScreen>
     _rescuerLocationSubscription = _firestoreService
         .rescuerStream(rescuerId)
         .listen((data) {
-      if (!mounted || data == null) return;
-      final lat = data['latitude'] as double?;
-      final lng = data['longitude'] as double?;
-      if (lat == null || lng == null) return;
+          if (!mounted || data == null) return;
+          final lat = data['latitude'] as double?;
+          final lng = data['longitude'] as double?;
+          if (lat == null || lng == null) return;
 
-      final newLatLng = LatLng(lat, lng);
-      setState(() {
-        _rescuerLatLng = newLatLng;
-        _updateRescuerMarker();
-        _animateToFitRoute();
-      });
+          final newLatLng = LatLng(lat, lng);
+          setState(() {
+            _rescuerLatLng = newLatLng;
+            _animateToFitRoute();
+          });
+          _updateRescuerMarker();
 
-      _recalculateEtaFallback(newLatLng);
-      _maybeRefreshRoute(newLatLng);
-    });
+          _recalculateEtaFallback(newLatLng);
+          _maybeRefreshRoute(newLatLng);
+        });
   }
 
   void _maybeRefreshRoute(LatLng rescuerPos) {
@@ -144,12 +146,12 @@ class _RescuerAssignedScreenState extends State<RescuerAssignedScreen>
     final bool noRoute = !_routeLoaded;
     final bool movedEnough =
         _lastDirectionsFetchLatLng == null ||
-            _haversineMeters(_lastDirectionsFetchLatLng!, rescuerPos) >=
-                _routeRefreshThresholdMeters;
+        _haversineMeters(_lastDirectionsFetchLatLng!, rescuerPos) >=
+            _routeRefreshThresholdMeters;
     final bool cooledDown =
         _lastDirectionsFetchTime == null ||
-            DateTime.now().difference(_lastDirectionsFetchTime!).inSeconds >=
-                _routeDebounceSeconds;
+        DateTime.now().difference(_lastDirectionsFetchTime!).inSeconds >=
+            _routeDebounceSeconds;
     if (noRoute || (movedEnough && cooledDown)) {
       _fetchDirections(rescuerPos);
     }
@@ -162,13 +164,13 @@ class _RescuerAssignedScreenState extends State<RescuerAssignedScreen>
     try {
       final uri = Uri.parse(
         'https://maps.googleapis.com/maps/api/directions/json'
-            '?origin=${rescuerPos.latitude},${rescuerPos.longitude}'
-            '&destination=${_victimLatLng!.latitude},${_victimLatLng!.longitude}'
-            '&mode=driving'
-            '&alternatives=false'
-            '&traffic_model=best_guess'
-            '&departure_time=now'
-            '&key=$_apiKey',
+        '?origin=${rescuerPos.latitude},${rescuerPos.longitude}'
+        '&destination=${_victimLatLng!.latitude},${_victimLatLng!.longitude}'
+        '&mode=driving'
+        '&alternatives=false'
+        '&traffic_model=best_guess'
+        '&departure_time=now'
+        '&key=$_apiKey',
       );
       final response = await http.get(uri).timeout(const Duration(seconds: 10));
       if (response.statusCode != 200) return;
@@ -265,7 +267,7 @@ class _RescuerAssignedScreenState extends State<RescuerAssignedScreen>
     final double dLng = _rad(b.longitude - a.longitude);
     final double h =
         pow(sin(dLat / 2), 2) +
-            cos(_rad(a.latitude)) * cos(_rad(b.latitude)) * pow(sin(dLng / 2), 2);
+        cos(_rad(a.latitude)) * cos(_rad(b.latitude)) * pow(sin(dLng / 2), 2);
     return 2 * r * asin(sqrt(h));
   }
 
@@ -327,21 +329,63 @@ class _RescuerAssignedScreenState extends State<RescuerAssignedScreen>
     );
   }
 
-  void _updateRescuerMarker() {
-    if (_rescuerLatLng == null) return;
-    _markers.removeWhere((m) => m.markerId.value == 'rescuer');
-    _markers.add(
-      Marker(
-        markerId: const MarkerId('rescuer'),
-        position: _rescuerLatLng!,
-        icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueBlue),
-        infoWindow: const InfoWindow(
-          title: '🚑 Rescuer',
-          snippet: 'Heading to you',
-        ),
-        zIndex: 2,
-      ),
+  Future<BitmapDescriptor> _buildRescuerIcon() async {
+    const double size = 120;
+    final recorder = ui.PictureRecorder();
+    final canvas = Canvas(recorder);
+
+    // Outer white circle (border)
+    final borderPaint = Paint()..color = Colors.white;
+    canvas.drawCircle(const Offset(size / 2, size / 2), size / 2, borderPaint);
+
+    // Inner blue circle
+    final bgPaint = Paint()..color = const Color(0xFF1565C0);
+    canvas.drawCircle(const Offset(size / 2, size / 2), size / 2 - 6, bgPaint);
+
+    // Draw ambulance cross (white plus sign)
+    final crossPaint = Paint()
+      ..color = Colors.white
+      ..strokeCap = StrokeCap.round
+      ..strokeWidth = 14;
+
+    // Horizontal bar
+    canvas.drawLine(
+      Offset(size * 0.28, size / 2),
+      Offset(size * 0.72, size / 2),
+      crossPaint,
     );
+    // Vertical bar
+    canvas.drawLine(
+      Offset(size / 2, size * 0.28),
+      Offset(size / 2, size * 0.72),
+      crossPaint,
+    );
+
+    final picture = recorder.endRecording();
+    final image = await picture.toImage(size.toInt(), size.toInt());
+    final bytes = await image.toByteData(format: ui.ImageByteFormat.png);
+    return BitmapDescriptor.fromBytes(bytes!.buffer.asUint8List());
+  }
+
+  Future<void> _updateRescuerMarker() async {
+    if (_rescuerLatLng == null) return;
+    _rescuerIcon ??= await _buildRescuerIcon();
+    if (!mounted) return;
+    setState(() {
+      _markers.removeWhere((m) => m.markerId.value == 'rescuer');
+      _markers.add(
+        Marker(
+          markerId: const MarkerId('rescuer'),
+          position: _rescuerLatLng!,
+          icon: _rescuerIcon!,
+          infoWindow: const InfoWindow(
+            title: '🚑 Rescuer',
+            snippet: 'On the way to you',
+          ),
+          zIndex: 2,
+        ),
+      );
+    });
   }
 
   Future<void> _callRescuer() async {
@@ -355,7 +399,7 @@ class _RescuerAssignedScreenState extends State<RescuerAssignedScreen>
     if (_victimLatLng == null) return;
     Share.share(
       'My emergency location: ${_victimLatLng!.latitude}, ${_victimLatLng!.longitude}\n'
-          'https://www.google.com/maps/search/?api=1&query=${_victimLatLng!.latitude},${_victimLatLng!.longitude}',
+      'https://www.google.com/maps/search/?api=1&query=${_victimLatLng!.latitude},${_victimLatLng!.longitude}',
     );
   }
 
@@ -363,7 +407,7 @@ class _RescuerAssignedScreenState extends State<RescuerAssignedScreen>
     Navigator.pushAndRemoveUntil(
       context,
       MaterialPageRoute(builder: (_) => const CitizenHomeScreen()),
-          (route) => false,
+      (route) => false,
     );
   }
 
@@ -377,7 +421,7 @@ class _RescuerAssignedScreenState extends State<RescuerAssignedScreen>
       backgroundColor: Colors.transparent,
       builder: (_) => _ReviewSheet(
         rescuerName:
-        _rescuerData?['lead_officer'] ??
+            _rescuerData?['lead_officer'] ??
             _rescuerUser?.displayName ??
             'Your Rescuer',
         rescuerId: _sosRequest?.assignedRescuerId ?? '',
@@ -399,7 +443,9 @@ class _RescuerAssignedScreenState extends State<RescuerAssignedScreen>
   Widget build(BuildContext context) {
     final assigned = _sosRequest?.assignedRescuerId != null;
     final arrived =
-        _sosRequest?.status == 'resolved' || _sosRequest?.status == 'arrived';
+        _sosRequest?.status == 'resolved' ||
+        _sosRequest?.status == 'arrived' ||
+        _sosRequest?.status == 'on_site';
 
     return Scaffold(
       backgroundColor: AppTheme.background,
@@ -474,20 +520,20 @@ class _RescuerAssignedScreenState extends State<RescuerAssignedScreen>
             height: MediaQuery.of(context).size.height * 0.38,
             child: assigned && _victimLatLng != null
                 ? GoogleMap(
-              initialCameraPosition: CameraPosition(
-                target: _victimLatLng!,
-                zoom: 14,
-              ),
-              markers: _markers,
-              polylines: _polylines,
-              onMapCreated: (c) {
-                _mapController = c;
-                if (_rescuerLatLng != null) _animateToFitRoute();
-              },
-              myLocationButtonEnabled: false,
-              trafficEnabled: true,
-              zoomControlsEnabled: true,
-            )
+                    initialCameraPosition: CameraPosition(
+                      target: _victimLatLng!,
+                      zoom: 14,
+                    ),
+                    markers: _markers,
+                    polylines: _polylines,
+                    onMapCreated: (c) {
+                      _mapController = c;
+                      if (_rescuerLatLng != null) _animateToFitRoute();
+                    },
+                    myLocationButtonEnabled: false,
+                    trafficEnabled: true,
+                    zoomControlsEnabled: true,
+                  )
                 : _buildWaitingMap(),
           ),
 
@@ -502,7 +548,7 @@ class _RescuerAssignedScreenState extends State<RescuerAssignedScreen>
           ),
         ],
       ),
-      bottomNavigationBar: AppBottomNav(currentIndex: 0),
+      bottomNavigationBar: AppBottomNav(currentIndex: 0, hideViewButton: true),
     );
   }
 
@@ -549,7 +595,7 @@ class _RescuerAssignedScreenState extends State<RescuerAssignedScreen>
             children: [
               Text(
                 'ETA: ${eta.toStringAsFixed(0)} min'
-                    '${dist != null ? '  •  ${dist.toStringAsFixed(1)} km' : ''}',
+                '${dist != null ? '  •  ${dist.toStringAsFixed(1)} km' : ''}',
                 style: const TextStyle(
                   color: Colors.white,
                   fontWeight: FontWeight.bold,
@@ -990,17 +1036,17 @@ class _ReviewSheetState extends State<_ReviewSheet> {
               ),
               child: _submitting
                   ? const SizedBox(
-                width: 20,
-                height: 20,
-                child: CircularProgressIndicator(
-                  strokeWidth: 2,
-                  color: Colors.white,
-                ),
-              )
+                      width: 20,
+                      height: 20,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: Colors.white,
+                      ),
+                    )
                   : const Text(
-                'Submit Review',
-                style: TextStyle(fontWeight: FontWeight.bold),
-              ),
+                      'Submit Review',
+                      style: TextStyle(fontWeight: FontWeight.bold),
+                    ),
             ),
           ),
           const SizedBox(height: 10),

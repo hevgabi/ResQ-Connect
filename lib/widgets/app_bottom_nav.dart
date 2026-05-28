@@ -20,29 +20,31 @@ class _SosBanner extends StatelessWidget {
   final String status;
   final String? assignedRescuerName;
   final VoidCallback onTap;
+  final bool onActiveScreen;
 
   const _SosBanner({
     required this.sosId,
     required this.status,
     required this.onTap,
     this.assignedRescuerName,
+    this.onActiveScreen = false,
   });
 
   @override
   Widget build(BuildContext context) {
     final bool isAssigned = status == 'assigned';
-    final Color bgColor =
-    isAssigned ? const Color(0xFF1FAA59) : const Color(0xFFD7263D);
-    final IconData icon =
-    isAssigned ? Icons.directions_run : Icons.sos;
+    final Color bgColor = isAssigned
+        ? const Color(0xFF1FAA59)
+        : const Color(0xFFD7263D);
+    final IconData icon = isAssigned ? Icons.directions_run : Icons.sos;
     final String label = isAssigned
         ? (assignedRescuerName != null
-        ? 'Rescuer on the way — $assignedRescuerName'
-        : 'Rescuer assigned — tap for details')
+              ? 'Rescuer on the way — $assignedRescuerName'
+              : 'Rescuer assigned — tap for details')
         : 'SOS Active — waiting for rescuer';
 
     return GestureDetector(
-      onTap: onTap,
+      onTap: onActiveScreen ? null : onTap,
       child: Container(
         width: double.infinity,
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
@@ -72,30 +74,34 @@ class _SosBanner extends StatelessWidget {
                 overflow: TextOverflow.ellipsis,
               ),
             ),
-            const SizedBox(width: 8),
-            Container(
-              padding:
-              const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-              decoration: BoxDecoration(
-                color: Colors.white.withOpacity(0.25),
-                borderRadius: BorderRadius.circular(20),
-              ),
-              child: const Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(
-                    'View',
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontWeight: FontWeight.w700,
-                      fontSize: 12,
+            if (!onActiveScreen) ...[
+              const SizedBox(width: 8),
+              Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 4,
+                ),
+                decoration: BoxDecoration(
+                  color: Colors.white.withOpacity(0.25),
+                  borderRadius: BorderRadius.circular(20),
+                ),
+                child: const Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      'View',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.w700,
+                        fontSize: 12,
+                      ),
                     ),
-                  ),
-                  SizedBox(width: 3),
-                  Icon(Icons.chevron_right, color: Colors.white, size: 14),
-                ],
+                    SizedBox(width: 3),
+                    Icon(Icons.chevron_right, color: Colors.white, size: 14),
+                  ],
+                ),
               ),
-            ),
+            ],
           ],
         ),
       ),
@@ -123,9 +129,10 @@ class _PulsingIconState extends State<_PulsingIcon>
       vsync: this,
       duration: const Duration(milliseconds: 900),
     )..repeat(reverse: true);
-    _scale = Tween<double>(begin: 0.9, end: 1.15).animate(
-      CurvedAnimation(parent: _ctrl, curve: Curves.easeInOut),
-    );
+    _scale = Tween<double>(
+      begin: 0.9,
+      end: 1.15,
+    ).animate(CurvedAnimation(parent: _ctrl, curve: Curves.easeInOut));
   }
 
   @override
@@ -150,7 +157,16 @@ class _PulsingIconState extends State<_PulsingIcon>
 class AppBottomNav extends StatefulWidget {
   final int currentIndex;
   final ValueChanged<int>? onTap;
-  const AppBottomNav({super.key, required this.currentIndex, this.onTap});
+
+  /// Set to true only on RescuerAssignedScreen to hide the View button
+  /// and disable the banner tap (user is already on that screen).
+  final bool hideViewButton;
+  const AppBottomNav({
+    super.key,
+    required this.currentIndex,
+    this.onTap,
+    this.hideViewButton = false,
+  });
 
   @override
   State<AppBottomNav> createState() => _AppBottomNavState();
@@ -207,7 +223,7 @@ class _AppBottomNavState extends State<AppBottomNav> {
                 builder: (_) =>
                     RescuerAssignedScreen(sosId: snap.docs.first.id),
               ),
-                  (route) => false,
+              (route) => false,
             );
             return;
           }
@@ -217,14 +233,14 @@ class _AppBottomNavState extends State<AppBottomNav> {
         Navigator.pushAndRemoveUntil(
           context,
           MaterialPageRoute(builder: (_) => const SosTriggerScreen()),
-              (route) => false,
+          (route) => false,
         );
       } catch (_) {
         if (mounted) {
           Navigator.pushAndRemoveUntil(
             context,
             MaterialPageRoute(builder: (_) => const SosTriggerScreen()),
-                (route) => false,
+            (route) => false,
           );
         }
       } finally {
@@ -244,17 +260,15 @@ class _AppBottomNavState extends State<AppBottomNav> {
     Navigator.pushAndRemoveUntil(
       context,
       MaterialPageRoute(builder: (_) => screens[index]),
-          (route) => false,
+      (route) => false,
     );
   }
 
   void _goToSosStatus(String sosId) {
     Navigator.pushAndRemoveUntil(
       context,
-      MaterialPageRoute(
-        builder: (_) => RescuerAssignedScreen(sosId: sosId),
-      ),
-          (route) => false,
+      MaterialPageRoute(builder: (_) => RescuerAssignedScreen(sosId: sosId)),
+      (route) => false,
     );
   }
 
@@ -287,10 +301,7 @@ class _AppBottomNavState extends State<AppBottomNav> {
           activeIcon: Icon(Icons.map),
           label: 'Map',
         ),
-        BottomNavigationBarItem(
-          icon: _SosIcon(),
-          label: 'SOS',
-        ),
+        BottomNavigationBarItem(icon: _SosIcon(), label: 'SOS'),
         BottomNavigationBarItem(
           icon: Icon(Icons.phone_outlined),
           activeIcon: Icon(Icons.phone),
@@ -334,6 +345,7 @@ class _AppBottomNavState extends State<AppBottomNav> {
               status: status,
               assignedRescuerName: assignedName,
               onTap: () => _goToSosStatus(doc.id),
+              onActiveScreen: widget.hideViewButton,
             ),
             navBar,
           ],

@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:timeago/timeago.dart' as timeago;
 
 import '../../theme/app_theme.dart';
+import '../../widgets/broadcast_alert_overlay.dart';
 import '../../widgets/moderator_bottom_nav.dart';
 import '../settings/hamburger_menu_screen.dart';
 
@@ -43,49 +44,57 @@ class _ModeratorSpottedEmergenciesScreenState
           ),
         ],
       ),
-      body: Column(
+      body: Stack(
         children: [
-          // Filter chips
-          Container(
-            color: Colors.white,
-            padding: const EdgeInsets.fromLTRB(16, 10, 16, 12),
-            child: SingleChildScrollView(
-              scrollDirection: Axis.horizontal,
-              child: Row(
-                children: [
-                  _FilterChip(
-                    label: '🕐 Pending',
-                    selected: _filterStatus == 'pending',
-                    color: AppTheme.warningOrange,
-                    onTap: () => setState(() => _filterStatus = 'pending'),
+          Column(
+            children: [
+              // Filter chips
+              Container(
+                color: Colors.white,
+                padding: const EdgeInsets.fromLTRB(16, 10, 16, 12),
+                child: SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  child: Row(
+                    children: [
+                      _FilterChip(
+                        label: '🕐 Pending',
+                        selected: _filterStatus == 'pending',
+                        color: AppTheme.warningOrange,
+                        onTap: () => setState(() => _filterStatus = 'pending'),
+                      ),
+                      const SizedBox(width: 8),
+                      _FilterChip(
+                        label: '✅ Assigned',
+                        selected: _filterStatus == 'assigned',
+                        color: AppTheme.successGreen,
+                        onTap: () => setState(() => _filterStatus = 'assigned'),
+                      ),
+                      const SizedBox(width: 8),
+                      _FilterChip(
+                        label: '🚫 Dismissed',
+                        selected: _filterStatus == 'dismissed',
+                        color: AppTheme.textSecondary,
+                        onTap: () =>
+                            setState(() => _filterStatus = 'dismissed'),
+                      ),
+                      const SizedBox(width: 8),
+                      _FilterChip(
+                        label: 'All',
+                        selected: _filterStatus == 'all',
+                        color: AppTheme.primaryBlue,
+                        onTap: () => setState(() => _filterStatus = 'all'),
+                      ),
+                    ],
                   ),
-                  const SizedBox(width: 8),
-                  _FilterChip(
-                    label: '✅ Assigned',
-                    selected: _filterStatus == 'assigned',
-                    color: AppTheme.successGreen,
-                    onTap: () => setState(() => _filterStatus = 'assigned'),
-                  ),
-                  const SizedBox(width: 8),
-                  _FilterChip(
-                    label: '🚫 Dismissed',
-                    selected: _filterStatus == 'dismissed',
-                    color: AppTheme.textSecondary,
-                    onTap: () => setState(() => _filterStatus = 'dismissed'),
-                  ),
-                  const SizedBox(width: 8),
-                  _FilterChip(
-                    label: 'All',
-                    selected: _filterStatus == 'all',
-                    color: AppTheme.primaryBlue,
-                    onTap: () => setState(() => _filterStatus = 'all'),
-                  ),
-                ],
+                ),
               ),
-            ),
+              const Divider(height: 1),
+              Expanded(child: _buildList()),
+            ],
           ),
-          const Divider(height: 1),
-          Expanded(child: _buildList()),
+
+          // ── Broadcast alert overlay ─────────────────────────────────────
+          const BroadcastAlertOverlay(topOffset: 12),
         ],
       ),
       bottomNavigationBar: const ModeratorBottomNav(currentIndex: 4),

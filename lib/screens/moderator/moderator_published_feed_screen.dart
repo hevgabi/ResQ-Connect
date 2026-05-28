@@ -8,6 +8,7 @@ import 'package:timeago/timeago.dart' as timeago;
 import '../../models/report_model.dart';
 import '../../providers/auth_provider.dart';
 import '../../services/firestore_service.dart';
+import '../../widgets/broadcast_alert_overlay.dart';
 import '../../widgets/moderator_bottom_nav.dart';
 import '../../widgets/error_banner.dart';
 import '../../widgets/empty_state.dart';
@@ -51,7 +52,13 @@ class ModeratorPublishedFeedScreen extends StatelessWidget {
             ],
           ),
         ),
-        body: const TabBarView(children: [_PublishedTab(), _RejectedTab()]),
+        body: const Stack(
+          children: [
+            TabBarView(children: [_PublishedTab(), _RejectedTab()]),
+            // ── Broadcast alert overlay ─────────────────────────────────────
+            BroadcastAlertOverlay(topOffset: 12),
+          ],
+        ),
         bottomNavigationBar: const ModeratorBottomNav(currentIndex: 1),
       ),
     );

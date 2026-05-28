@@ -378,6 +378,12 @@ class _MissionHistoryCard extends StatelessWidget {
                   ),
                 ],
 
+                // ── Category chip ──────────────────────────────────────────
+                if (sos?.category != null) ...[
+                  const SizedBox(height: 8),
+                  _HistoryCategoryChip(category: sos!.category!),
+                ],
+
                 const SizedBox(height: 10),
                 const Divider(height: 1),
                 const SizedBox(height: 10),
@@ -469,6 +475,69 @@ class _MissionHistoryCard extends StatelessWidget {
           ),
         );
       },
+    );
+  }
+}
+
+class _HistoryCategoryChip extends StatelessWidget {
+  final String category;
+  const _HistoryCategoryChip({required this.category});
+
+  static const _labels = <String, String>{
+    'natural_disaster': 'Natural Disaster',
+    'accident': 'Accident',
+    'medical': 'Medical',
+    'fire': 'Fire',
+    'crime': 'Crime',
+    'rescue': 'Rescue / Trapped',
+  };
+
+  static const _icons = <String, IconData>{
+    'natural_disaster': Icons.storm_rounded,
+    'accident': Icons.car_crash_rounded,
+    'medical': Icons.medical_services_rounded,
+    'fire': Icons.local_fire_department_rounded,
+    'crime': Icons.security_rounded,
+    'rescue': Icons.warning_amber_rounded,
+  };
+
+  static const _colors = <String, Color>{
+    'natural_disaster': Color(0xFF1565C0),
+    'accident': Color(0xFFFF6D00),
+    'medical': Color(0xFFE53935),
+    'fire': Color(0xFFFF8F00),
+    'crime': Color(0xFF6A1B9A),
+    'rescue': Color(0xFFF9A825),
+  };
+
+  @override
+  Widget build(BuildContext context) {
+    final label = _labels[category] ?? category;
+    final icon = _icons[category] ?? Icons.help_outline_rounded;
+    final color = _colors[category] ?? AppTheme.primaryBlue;
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.1),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: color.withValues(alpha: 0.35)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 13, color: color),
+          const SizedBox(width: 5),
+          Text(
+            label,
+            style: TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
+              color: color,
+            ),
+          ),
+        ],
+      ),
     );
   }
 }

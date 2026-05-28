@@ -6,6 +6,7 @@ import 'package:provider/provider.dart';
 import '../../providers/auth_provider.dart';
 import '../../services/firestore_service.dart';
 import '../../widgets/moderator_bottom_nav.dart';
+import '../../widgets/broadcast_alert_overlay.dart';
 
 class ModeratorStatisticsScreen extends StatelessWidget {
   const ModeratorStatisticsScreen({super.key});
@@ -37,9 +38,14 @@ class ModeratorStatisticsScreen extends StatelessWidget {
           ),
         ],
       ),
-      body: uid.isEmpty
-          ? const Center(child: Text('Not logged in'))
-          : _StatisticsBody(moderatorId: uid),
+      body: Stack(
+        children: [
+          uid.isEmpty
+              ? const Center(child: Text('Not logged in'))
+              : _StatisticsBody(moderatorId: uid),
+          const BroadcastAlertOverlay(topOffset: 12),
+        ],
+      ),
       bottomNavigationBar: const ModeratorBottomNav(currentIndex: 2),
     );
   }

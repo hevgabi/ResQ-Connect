@@ -12,6 +12,7 @@ import '../../models/user_model.dart';
 import '../../services/firestore_service.dart';
 import '../../services/location_service.dart';
 import '../../theme/app_theme.dart';
+import '../../widgets/broadcast_alert_overlay.dart';
 import '../../widgets/rescuer_bottom_nav.dart';
 import 'active_navigation_screen.dart';
 import 'mission_queue_screen.dart';
@@ -1024,6 +1025,9 @@ class _RescuerMapScreenState extends State<RescuerMapScreen>
                 ),
               ),
             ),
+
+          // ── Broadcast alert overlay ─────────────────────────────────────
+          BroadcastAlertOverlay(topOffset: topPad + 12),
         ],
       ),
       bottomNavigationBar: RescuerBottomNav(currentIndex: 1),

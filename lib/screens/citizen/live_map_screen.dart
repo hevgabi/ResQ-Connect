@@ -11,6 +11,7 @@ import '../../models/sos_request_model.dart';
 import '../../services/location_service.dart';
 import '../../widgets/app_bottom_nav.dart';
 import '../../services/storage_service.dart';
+import '../../widgets/broadcast_alert_overlay.dart';
 // Idinagdag na import para sa hamburger menu function at role
 import '../settings/hamburger_menu_screen.dart'; // i-adjust path depende sa location
 
@@ -433,6 +434,11 @@ class _LiveMapScreenState extends State<LiveMapScreen> {
                 ),
               ],
             ),
+          ),
+          // ── Broadcast alert overlay ──────────────────────────────────────
+          // No AppBar on this screen — offset by status bar height only.
+          BroadcastAlertOverlay(
+            topOffset: MediaQuery.of(context).padding.top + 12,
           ),
         ],
       ),

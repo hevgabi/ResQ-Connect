@@ -223,6 +223,149 @@ class _NotifToastState extends State<_NotifToast>
 }
 
 // =============================================================================
+// SLIDE-IN ALERT TOAST (broadcast from admin — orange/yellow)
+// =============================================================================
+
+class _AlertToast extends StatefulWidget {
+  final String title;
+  final String message;
+  final bool isCritical;
+  final VoidCallback onDismiss;
+
+  const _AlertToast({
+    required this.title,
+    required this.message,
+    required this.isCritical,
+    required this.onDismiss,
+  });
+
+  @override
+  State<_AlertToast> createState() => _AlertToastState();
+}
+
+class _AlertToastState extends State<_AlertToast>
+    with SingleTickerProviderStateMixin {
+  late AnimationController _ctrl;
+  late Animation<Offset> _slide;
+  late Animation<double> _fade;
+
+  @override
+  void initState() {
+    super.initState();
+    _ctrl = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 400),
+    );
+    _slide = Tween<Offset>(
+      begin: const Offset(0, -1),
+      end: Offset.zero,
+    ).animate(CurvedAnimation(parent: _ctrl, curve: Curves.easeOutCubic));
+    _fade = Tween<double>(begin: 0, end: 1).animate(_ctrl);
+
+    _ctrl.forward();
+
+    Future.delayed(const Duration(seconds: 4), () {
+      if (mounted) _dismiss();
+    });
+  }
+
+  void _dismiss() {
+    _ctrl.reverse().then((_) {
+      if (mounted) widget.onDismiss();
+    });
+  }
+
+  @override
+  void dispose() {
+    _ctrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final color = widget.isCritical
+        ? const Color(0xFFD7263D)
+        : const Color(0xFFFF6B00);
+    final icon = widget.isCritical
+        ? Icons.warning_rounded
+        : Icons.info_outline_rounded;
+
+    return SlideTransition(
+      position: _slide,
+      child: FadeTransition(
+        opacity: _fade,
+        child: GestureDetector(
+          onTap: _dismiss,
+          child: Container(
+            margin: const EdgeInsets.fromLTRB(16, 0, 16, 0),
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(color: color.withValues(alpha: 0.3)),
+              boxShadow: [
+                BoxShadow(
+                  color: color.withValues(alpha: 0.15),
+                  blurRadius: 16,
+                  offset: const Offset(0, 4),
+                ),
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.08),
+                  blurRadius: 8,
+                  offset: const Offset(0, 2),
+                ),
+              ],
+            ),
+            child: Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: color.withValues(alpha: 0.1),
+                    shape: BoxShape.circle,
+                  ),
+                  child: Icon(icon, color: color, size: 20),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        widget.title,
+                        style: TextStyle(
+                          fontWeight: FontWeight.w700,
+                          fontSize: 13,
+                          color: color,
+                        ),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        widget.message,
+                        style: const TextStyle(
+                          fontSize: 12,
+                          color: Color(0xFF546E7A),
+                          height: 1.3,
+                        ),
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Icon(Icons.close, size: 16, color: Colors.grey.shade400),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// =============================================================================
 // CITIZEN HOME SCREEN
 // =============================================================================
 
@@ -241,7 +384,14 @@ class _CitizenHomeScreenState extends State<CitizenHomeScreen> {
   static const _bg = Color(0xFFF5F7FA);
   static const _textSec = Color(0xFF546E7A);
 
-  final Set<String> _dismissedAlerts = {};
+  // ── Alert toast state — ValueNotifier so toasts never rebuild the feed ───
+  StreamSubscription<List<AlertModel>>? _alertToastSub;
+  final Set<String> _seenAlertIds = {};
+  final List<AlertModel> _alertToastQueue = [];
+  final ValueNotifier<AlertModel?> _currentAlertToastNotifier = ValueNotifier(
+    null,
+  );
+
   double? _userLat;
   double? _userLng;
   bool _locationLoaded = false;
@@ -252,35 +402,60 @@ class _CitizenHomeScreenState extends State<CitizenHomeScreen> {
   final _refreshIndicatorKey = GlobalKey<RefreshIndicatorState>();
 
   // ── Notification dot state ───────────────────────────────────────────────
-  bool _hasUnread = false;
+  // ValueNotifier so the dot in the AppBar updates without calling setState
+  // on the whole screen.
+  final ValueNotifier<bool> _hasUnreadNotifier = ValueNotifier(false);
   StreamSubscription<List<AlertModel>>? _alertDotSub;
   StreamSubscription<List<Map<String, dynamic>>>? _notifDotSub;
   StreamSubscription<List<Map<String, dynamic>>>? _sosDotSub;
-  StreamSubscription<int>? _engagementDotSub; // NEW
+  StreamSubscription<int>? _engagementDotSub;
 
-  // ── Notification toast state ─────────────────────────────────────────────
+  // ── Notification toast state — ValueNotifier so toasts never rebuild the feed
   StreamSubscription<List<Map<String, dynamic>>>? _notifSub;
   final Set<String> _seenNotifIds = {};
-  // Queue of toasts to show one at a time
   final List<Map<String, dynamic>> _toastQueue = [];
-  bool _showingToast = false;
-  Map<String, dynamic>? _currentToast;
+  final ValueNotifier<Map<String, dynamic>?> _currentToastNotifier =
+      ValueNotifier(null);
 
   @override
   void initState() {
     super.initState();
     _initLocation();
     _listenNotifications();
+    _listenAlertToasts();
     _listenUnreadDot();
   }
 
-  void _listenNotifications() {
+  Future<void> _listenNotifications() async {
     final uid = FirebaseAuth.instance.currentUser?.uid;
     if (uid == null) return;
+
+    try {
+      final initial = await FirestoreService.instance
+          .fetchUnreadNotificationsFromServer(uid);
+      if (!mounted) return;
+      for (final post in initial) {
+        final id = post['id'] as String;
+        if (!_seenNotifIds.contains(id)) {
+          _seenNotifIds.add(id);
+          _toastQueue.add(post);
+        }
+      }
+      if (_currentToastNotifier.value == null && _toastQueue.isNotEmpty) {
+        _showNextToast();
+      }
+    } catch (_) {
+      // Network unavailable — fall through to stream which serves from cache.
+    }
 
     _notifSub = FirestoreService.instance
         .citizenNotificationsStream(uid)
         .listen((posts) {
+          if (!mounted) return;
+          // Stream already filters notif_read == false, so every doc here is
+          // a genuinely new (unread) notification. We still dedup against
+          // _seenNotifIds to avoid re-queuing if the stream re-emits the same
+          // document before the initial server fetch has marked it read.
           for (final post in posts) {
             final id = post['id'] as String;
             if (!_seenNotifIds.contains(id)) {
@@ -288,7 +463,7 @@ class _CitizenHomeScreenState extends State<CitizenHomeScreen> {
               _toastQueue.add(post);
             }
           }
-          if (!_showingToast && _toastQueue.isNotEmpty) {
+          if (_currentToastNotifier.value == null && _toastQueue.isNotEmpty) {
             _showNextToast();
           }
         });
@@ -296,96 +471,121 @@ class _CitizenHomeScreenState extends State<CitizenHomeScreen> {
 
   void _showNextToast() {
     if (_toastQueue.isEmpty || !mounted) return;
-    setState(() {
-      _showingToast = true;
-      _currentToast = _toastQueue.removeAt(0);
-    });
+    // ValueNotifier update — does NOT call setState on the parent
+    _currentToastNotifier.value = _toastQueue.removeAt(0);
   }
 
   void _dismissToast() {
     if (!mounted) return;
-    final id = _currentToast?['id'] as String?;
+    final id = _currentToastNotifier.value?['id'] as String?;
     if (id != null) {
       FirestoreService.instance.markReportNotifRead(id);
     }
-    setState(() {
-      _showingToast = false;
-      _currentToast = null;
-    });
-    // Show next toast if any, after a short gap
+    // ValueNotifier update — does NOT call setState on the parent
+    _currentToastNotifier.value = null;
     if (_toastQueue.isNotEmpty) {
       Future.delayed(const Duration(milliseconds: 300), _showNextToast);
+    }
+  }
+
+  Future<void> _listenAlertToasts() async {
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+
+    // Load the persisted seen IDs BEFORE subscribing to the stream so that
+    // alerts the user has already seen are never re-queued as toasts.
+    if (uid != null) {
+      final persisted = await FirestoreService.instance.getSeenAlertIds(uid);
+      if (!mounted) return;
+      _seenAlertIds.addAll(persisted);
+    }
+
+    // Prime _seenAlertIds with whatever is currently in Firestore so the very
+    // first stream emission (which replays all existing docs) never triggers
+    // toasts for old alerts.
+    try {
+      final current = await FirestoreService.instance.alertsStream().first;
+      if (!mounted) return;
+      for (final a in current) {
+        _seenAlertIds.add(a.id);
+      }
+    } catch (_) {
+      // ignore — stream will deliver on listen
+    }
+
+    _alertToastSub = FirestoreService.instance.alertsStream().listen((alerts) {
+      if (!mounted) return;
+      for (final alert in alerts) {
+        if (!_seenAlertIds.contains(alert.id)) {
+          _seenAlertIds.add(alert.id);
+          _alertToastQueue.add(alert);
+        }
+      }
+      if (_currentAlertToastNotifier.value == null &&
+          _alertToastQueue.isNotEmpty) {
+        _showNextAlertToast();
+      }
+    });
+  }
+
+  void _showNextAlertToast() {
+    if (_alertToastQueue.isEmpty || !mounted) return;
+    // ValueNotifier update — does NOT call setState on the parent
+    _currentAlertToastNotifier.value = _alertToastQueue.removeAt(0);
+  }
+
+  void _dismissAlertToast() {
+    if (!mounted) return;
+    // ValueNotifier update — does NOT call setState on the parent
+    _currentAlertToastNotifier.value = null;
+    if (_alertToastQueue.isNotEmpty) {
+      Future.delayed(const Duration(milliseconds: 300), _showNextAlertToast);
     }
   }
 
   void _listenUnreadDot() {
     final uid = FirebaseAuth.instance.currentUser?.uid;
 
-    // Community alerts: fetch seen IDs once upfront, then compare on every
-    // stream emit. Avoids the async-inside-listener race condition.
-    void startAlertDotStream(Set<String> seenIds) {
-      _alertDotSub = FirestoreService.instance.alertsStream().listen((alerts) {
-        _alertDotHasItems = alerts.any((a) => !seenIds.contains(a.id));
-        if (mounted) {
-          setState(
-            () => _hasUnread =
-                _alertDotHasItems ||
-                _notifDotHasItems ||
-                _sosDotHasItems ||
-                _engagementDotHasItems, // NEW
-          );
-        }
-      });
+    void _updateDot() {
+      _hasUnreadNotifier.value =
+          _alertDotHasItems ||
+          _notifDotHasItems ||
+          _sosDotHasItems ||
+          _engagementDotHasItems;
     }
 
-    if (uid != null) {
-      FirestoreService.instance.getSeenAlertIds(uid).then(startAlertDotStream);
-    } else {
-      startAlertDotStream({});
-    }
+    // Re-fetch seenIds from Firestore on every stream emission so the dot
+    // clears correctly after the user views alerts — even after nav away and back.
+    _alertDotSub = FirestoreService.instance.alertsStream().listen((
+      alerts,
+    ) async {
+      if (!mounted) return;
+      final seenIds = uid != null
+          ? await FirestoreService.instance.getSeenAlertIds(uid)
+          : <String>{};
+      _alertDotHasItems = alerts.any((a) => !seenIds.contains(a.id));
+      if (mounted) _updateDot();
+    });
 
     if (uid != null) {
       _notifDotSub = FirestoreService.instance
           .citizenNotificationsStream(uid)
           .listen((notifs) {
             _notifDotHasItems = notifs.isNotEmpty;
-            if (mounted)
-              setState(
-                () => _hasUnread =
-                    _alertDotHasItems ||
-                    _notifDotHasItems ||
-                    _sosDotHasItems ||
-                    _engagementDotHasItems, // NEW
-              );
+            if (mounted) _updateDot();
           });
 
       _sosDotSub = FirestoreService.instance
           .citizenSosNotificationsStream(uid)
           .listen((items) {
             _sosDotHasItems = items.isNotEmpty;
-            if (mounted)
-              setState(
-                () => _hasUnread =
-                    _alertDotHasItems ||
-                    _notifDotHasItems ||
-                    _sosDotHasItems ||
-                    _engagementDotHasItems, // NEW
-              );
+            if (mounted) _updateDot();
           });
 
-      // NEW — engagement dot listener
       _engagementDotSub = FirestoreService.instance
           .unreadEngagementCountStream(uid)
           .listen((count) {
             _engagementDotHasItems = count > 0;
-            if (mounted)
-              setState(
-                () => _hasUnread =
-                    _alertDotHasItems ||
-                    _notifDotHasItems ||
-                    _sosDotHasItems ||
-                    _engagementDotHasItems,
-              );
+            if (mounted) _updateDot();
           });
     }
   }
@@ -393,35 +593,28 @@ class _CitizenHomeScreenState extends State<CitizenHomeScreen> {
   bool _notifDotHasItems = false;
   bool _alertDotHasItems = false;
   bool _sosDotHasItems = false;
-  bool _engagementDotHasItems = false; // NEW
+  bool _engagementDotHasItems = false;
 
-  // Called when the user taps the bell. Clears dot immediately and
-  // marks everything read in Firestore so it stays cleared on next open.
   Future<void> _markAllNotificationsRead() async {
     final uid = FirebaseAuth.instance.currentUser?.uid;
     if (uid == null) return;
 
-    // Clear dot instantly in UI
     if (mounted) {
-      setState(() {
-        _hasUnread = false;
-        _alertDotHasItems = false;
-        _notifDotHasItems = false;
-        _sosDotHasItems = false;
-        _engagementDotHasItems = false; // NEW
-      });
+      _alertDotHasItems = false;
+      _notifDotHasItems = false;
+      _sosDotHasItems = false;
+      _engagementDotHasItems = false;
+      _hasUnreadNotifier.value = false;
     }
 
-    // Mark all unread report notifications as read
-    FirestoreService.instance.citizenNotificationsStream(uid).first.then((
+    FirestoreService.instance.fetchUnreadNotificationsFromServer(uid).then((
       notifs,
     ) {
       for (final n in notifs) {
         FirestoreService.instance.markReportNotifRead(n['id'] as String);
       }
-    });
+    }).ignore();
 
-    // Mark all unread SOS notifications as read
     FirestoreService.instance.citizenSosNotificationsStream(uid).first.then((
       items,
     ) {
@@ -430,7 +623,6 @@ class _CitizenHomeScreenState extends State<CitizenHomeScreen> {
       }
     });
 
-    // Mark all community alerts as seen
     FirestoreService.instance.alertsStream().first.then((alerts) {
       final ids = alerts.map((a) => a.id).toList();
       if (ids.isNotEmpty) {
@@ -438,17 +630,20 @@ class _CitizenHomeScreenState extends State<CitizenHomeScreen> {
       }
     });
 
-    // NEW — mark all engagement notifications as read
     FirestoreService.instance.markEngagementNotifsRead(uid);
   }
 
   @override
   void dispose() {
     _notifSub?.cancel();
+    _alertToastSub?.cancel();
     _alertDotSub?.cancel();
     _notifDotSub?.cancel();
     _sosDotSub?.cancel();
-    _engagementDotSub?.cancel(); // NEW
+    _engagementDotSub?.cancel();
+    _currentToastNotifier.dispose();
+    _currentAlertToastNotifier.dispose();
+    _hasUnreadNotifier.dispose();
     super.dispose();
   }
 
@@ -573,7 +768,6 @@ class _CitizenHomeScreenState extends State<CitizenHomeScreen> {
             child: ListView(
               padding: const EdgeInsets.only(bottom: 100),
               children: [
-                _buildAlertBanners(),
                 const SizedBox(height: 16),
                 _buildGreeting(auth),
                 const SizedBox(height: 16),
@@ -597,14 +791,57 @@ class _CitizenHomeScreenState extends State<CitizenHomeScreen> {
             ),
           ),
 
-          // ── Slide-in toast overlay ───────────────────────────────────────
-          if (_showingToast && _currentToast != null)
-            Positioned(
-              top: 12,
-              left: 0,
-              right: 0,
-              child: _buildToast(_currentToast!),
+          // ── Notif toast overlay ───────────────────────────────────────────
+          // The Positioned slot is ALWAYS present in the Stack so the Stack's
+          // child list never changes shape and never triggers a layout-dirty
+          // pass on the underlying Home Screen content.  Only the interior of
+          // the slot rebuilds (via ValueListenableBuilder) when a toast
+          // appears or disappears.
+          Positioned(
+            top: 12,
+            left: 0,
+            right: 0,
+            child: ValueListenableBuilder<Map<String, dynamic>?>(
+              valueListenable: _currentToastNotifier,
+              builder: (_, currentToast, __) {
+                if (currentToast == null) {
+                  // Zero-size, fully transparent to hit-testing — no layout
+                  // impact on siblings.
+                  return const IgnorePointer(child: SizedBox.shrink());
+                }
+                return _buildToast(currentToast);
+              },
             ),
+          ),
+
+          // ── Alert toast overlay ───────────────────────────────────────────
+          // Same fixed-slot pattern.  The top offset is derived from the
+          // notif-toast notifier directly inside the builder so it stays
+          // reactive without adding another setState call.
+          Positioned(
+            top: 0,
+            left: 0,
+            right: 0,
+            child: ValueListenableBuilder<AlertModel?>(
+              valueListenable: _currentAlertToastNotifier,
+              builder: (_, currentAlert, __) {
+                if (currentAlert == null) {
+                  return const IgnorePointer(child: SizedBox.shrink());
+                }
+                // Stack below notif toast if both are visible.
+                final notifVisible = _currentToastNotifier.value != null;
+                return Padding(
+                  padding: EdgeInsets.only(top: notifVisible ? 90 : 12),
+                  child: _AlertToast(
+                    title: currentAlert.title,
+                    message: currentAlert.message,
+                    isCritical: currentAlert.severity == 'critical',
+                    onDismiss: _dismissAlertToast,
+                  ),
+                );
+              },
+            ),
+          ),
         ],
       ),
       bottomNavigationBar: const AppBottomNav(currentIndex: 0),
@@ -672,24 +909,26 @@ class _CitizenHomeScreenState extends State<CitizenHomeScreen> {
                 color: Color(0xFF37474F),
               ),
               onPressed: () {
-                _markAllNotificationsRead();
                 Navigator.push(
                   context,
                   MaterialPageRoute(builder: (_) => const AlertsScreen()),
-                );
+                ).then((_) => _markAllNotificationsRead());
               },
             ),
             Positioned(
               right: 10,
               top: 10,
-              child: Visibility(
-                visible: _hasUnread,
-                child: Container(
-                  width: 8,
-                  height: 8,
-                  decoration: const BoxDecoration(
-                    color: _red,
-                    shape: BoxShape.circle,
+              child: ValueListenableBuilder<bool>(
+                valueListenable: _hasUnreadNotifier,
+                builder: (_, hasUnread, __) => Visibility(
+                  visible: hasUnread,
+                  child: Container(
+                    width: 8,
+                    height: 8,
+                    decoration: const BoxDecoration(
+                      color: _red,
+                      shape: BoxShape.circle,
+                    ),
                   ),
                 ),
               ),
@@ -731,144 +970,6 @@ class _CitizenHomeScreenState extends State<CitizenHomeScreen> {
             style: TextStyle(fontSize: 14, color: _textSec),
           ),
         ],
-      ),
-    );
-  }
-
-  Widget _buildAlertBanners() {
-    return StreamBuilder<List<AlertModel>>(
-      stream: FirestoreService.instance.alertsStream(),
-      builder: (context, snapshot) {
-        if (snapshot.connectionState == ConnectionState.waiting) {
-          return const SizedBox.shrink();
-        }
-        if (snapshot.hasError || !snapshot.hasData) {
-          return const SizedBox.shrink();
-        }
-
-        final alerts = snapshot.data!
-            .where((a) => !_dismissedAlerts.contains(a.id))
-            .toList();
-
-        if (alerts.isEmpty) return const SizedBox.shrink();
-
-        return Column(
-          children: alerts.map((alert) {
-            return _buildSingleAlertBanner(alert);
-          }).toList(),
-        );
-      },
-    );
-  }
-
-  Widget _buildSingleAlertBanner(AlertModel alert) {
-    final isCritical = alert.severity == 'critical';
-    final isWeather = alert.type == 'weather';
-    final bannerColor = isCritical
-        ? _red.withValues(alpha: 0.08)
-        : _orange.withValues(alpha: 0.08);
-    final borderColor = isCritical ? _red : _orange;
-    final iconData = isCritical
-        ? Icons.warning_rounded
-        : Icons.info_outline_rounded;
-
-    return Dismissible(
-      key: Key('alert_${alert.id}'),
-      direction: DismissDirection.endToStart,
-      onDismissed: (_) {
-        setState(() => _dismissedAlerts.add(alert.id));
-      },
-      background: Container(
-        alignment: Alignment.centerRight,
-        color: Colors.grey.shade300,
-        padding: const EdgeInsets.only(right: 20),
-        child: const Icon(Icons.close, color: Colors.grey),
-      ),
-      child: Container(
-        margin: const EdgeInsets.fromLTRB(16, 8, 16, 0),
-        padding: const EdgeInsets.all(12),
-        decoration: BoxDecoration(
-          color: bannerColor,
-          borderRadius: BorderRadius.circular(12),
-          border: Border(left: BorderSide(color: borderColor, width: 4)),
-        ),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Icon(iconData, color: borderColor, size: 20),
-            const SizedBox(width: 10),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      Expanded(
-                        child: Text(
-                          alert.title,
-                          style: TextStyle(
-                            fontWeight: FontWeight.w700,
-                            color: borderColor,
-                            fontSize: 13,
-                          ),
-                        ),
-                      ),
-                      if (isWeather)
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 8,
-                            vertical: 2,
-                          ),
-                          decoration: BoxDecoration(
-                            color: _blue.withValues(alpha: 0.15),
-                            borderRadius: BorderRadius.circular(20),
-                          ),
-                          child: const Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Icon(
-                                Icons.thunderstorm_outlined,
-                                size: 12,
-                                color: _blue,
-                              ),
-                              SizedBox(width: 4),
-                              Text(
-                                'Typhoon Signal',
-                                style: TextStyle(
-                                  fontSize: 10,
-                                  color: _blue,
-                                  fontWeight: FontWeight.w700,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                    ],
-                  ),
-                  const SizedBox(height: 2),
-                  Text(
-                    alert.message,
-                    style: TextStyle(
-                      fontSize: 12,
-                      color: borderColor.withValues(alpha: 0.8),
-                    ),
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(width: 6),
-            GestureDetector(
-              onTap: () => setState(() => _dismissedAlerts.add(alert.id)),
-              child: Icon(
-                Icons.close,
-                size: 16,
-                color: borderColor.withValues(alpha: 0.6),
-              ),
-            ),
-          ],
-        ),
       ),
     );
   }
@@ -955,7 +1056,7 @@ class _CitizenHomeScreenState extends State<CitizenHomeScreen> {
     return _FeedCard(
       key: ValueKey(id),
       postId: id,
-      authorUid: (data['author_id'] as String?) ?? '', // NEW
+      authorUid: (data['author_id'] as String?) ?? '',
       name: name,
       text: text,
       timeStr: timeStr,
@@ -1117,7 +1218,7 @@ class _CitizenHomeScreenState extends State<CitizenHomeScreen> {
 
 class _FeedCard extends StatefulWidget {
   final String postId;
-  final String authorUid; // NEW — needed to write engagement notif
+  final String authorUid;
   final String name;
   final String text;
   final String timeStr;
@@ -1131,7 +1232,7 @@ class _FeedCard extends StatefulWidget {
   const _FeedCard({
     super.key,
     required this.postId,
-    required this.authorUid, // NEW
+    required this.authorUid,
     required this.name,
     required this.text,
     required this.timeStr,
@@ -1155,8 +1256,6 @@ class _FeedCardState extends State<_FeedCard> {
   late int _likeCount;
   late int _commentCount;
   bool _liking = false;
-  // Once the user has interacted, stop syncing from the stream so a
-  // Firestore re-emit never undoes the optimistic update.
   bool _hasInteracted = false;
   bool _hasCommented = false;
 
@@ -1173,18 +1272,20 @@ class _FeedCardState extends State<_FeedCard> {
   @override
   void didUpdateWidget(_FeedCard old) {
     super.didUpdateWidget(old);
-    // Only sync from stream before the user has ever tapped like on this card
     if (!_hasInteracted) {
       _liked = widget.likedBy.contains(_currentUid);
       _likeCount = widget.likesCount;
     }
-    // Only sync comment count from stream if user hasn't commented locally yet
     if (!_hasCommented) {
       _commentCount = widget.commentsCount;
+    } else if (widget.commentsCount >= _commentCount) {
+      // Stream has caught up with our optimistic increment — hand control
+      // back to the stream so future comments sync correctly.
+      _commentCount = widget.commentsCount;
+      _hasCommented = false;
     }
   }
 
-  // Returns the first 60 chars of the post body as a preview snippet.
   String get _postSnippet {
     final t = widget.text.trim();
     return t.length <= 60 ? t : '${t.substring(0, 60)}…';
@@ -1213,7 +1314,6 @@ class _FeedCardState extends State<_FeedCard> {
           'liked_by': FieldValue.arrayUnion([_currentUid]),
         }, SetOptions(merge: true));
 
-        // NEW — write like notification to post owner
         final actorDoc = await FirebaseFirestore.instance
             .collection('users')
             .doc(_currentUid)
@@ -1239,7 +1339,6 @@ class _FeedCardState extends State<_FeedCard> {
           'liked_by': FieldValue.arrayRemove([_currentUid]),
         }, SetOptions(merge: true));
 
-        // NEW — remove like notification
         await FirestoreService.instance.deleteEngagementLikeNotif(
           postOwnerUid: widget.authorUid,
           actorUid: _currentUid,
@@ -1247,7 +1346,6 @@ class _FeedCardState extends State<_FeedCard> {
         );
       }
     } catch (_) {
-      // Revert optimistic update on failure
       if (mounted) {
         setState(() {
           _liked = !newLiked;
@@ -1266,8 +1364,8 @@ class _FeedCardState extends State<_FeedCard> {
       backgroundColor: Colors.transparent,
       builder: (_) => _CommentsSheet(
         postId: widget.postId,
-        authorUid: widget.authorUid, // NEW
-        postSnippet: _postSnippet, // NEW
+        authorUid: widget.authorUid,
+        postSnippet: _postSnippet,
         currentUid: _currentUid,
         onCommentAdded: () {
           if (mounted) {
@@ -1302,7 +1400,6 @@ class _FeedCardState extends State<_FeedCard> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Header
             Row(
               children: [
                 CircleAvatar(
@@ -1341,7 +1438,6 @@ class _FeedCardState extends State<_FeedCard> {
               ],
             ),
 
-            // Post text
             if (widget.text.isNotEmpty) ...[
               const SizedBox(height: 10),
               Text(
@@ -1354,20 +1450,17 @@ class _FeedCardState extends State<_FeedCard> {
               ),
             ],
 
-            // Images
             if (widget.mediaUrls.isNotEmpty) ...[
               const SizedBox(height: 10),
               _buildMediaGrid(widget.mediaUrls),
             ],
 
-            // Divider + actions
             const SizedBox(height: 10),
             Divider(color: Colors.grey.shade100, height: 1),
             const SizedBox(height: 8),
 
             Row(
               children: [
-                // Like button
                 GestureDetector(
                   onTap: _toggleLike,
                   behavior: HitTestBehavior.opaque,
@@ -1401,7 +1494,6 @@ class _FeedCardState extends State<_FeedCard> {
 
                 const SizedBox(width: 20),
 
-                // Comment button
                 GestureDetector(
                   onTap: _openComments,
                   behavior: HitTestBehavior.opaque,
@@ -1514,15 +1606,15 @@ class _FeedCardState extends State<_FeedCard> {
 
 class _CommentsSheet extends StatefulWidget {
   final String postId;
-  final String authorUid; // NEW
-  final String postSnippet; // NEW
+  final String authorUid;
+  final String postSnippet;
   final String currentUid;
   final VoidCallback? onCommentAdded;
 
   const _CommentsSheet({
     required this.postId,
-    required this.authorUid, // NEW
-    required this.postSnippet, // NEW
+    required this.authorUid,
+    required this.postSnippet,
     required this.currentUid,
     this.onCommentAdded,
   });
@@ -1550,7 +1642,6 @@ class _CommentsSheetState extends State<_CommentsSheet> {
 
     setState(() => _sending = true);
     try {
-      // Grab display name using the actual Firestore field names
       String authorName = 'Anonymous';
       try {
         final userDoc = await FirebaseFirestore.instance
@@ -1569,10 +1660,16 @@ class _CommentsSheetState extends State<_CommentsSheet> {
           }
         }
       } catch (_) {
-        // If user lookup fails, fall back to Firebase Auth display name
         authorName =
             FirebaseAuth.instance.currentUser?.displayName ?? 'Anonymous';
       }
+
+      // Notify the parent card BEFORE the Firestore writes so that
+      // _hasCommented is already true when the feed stream fires its next
+      // snapshot (which would otherwise double-count the increment).
+      _ctrl.clear();
+      _focus.unfocus();
+      widget.onCommentAdded?.call();
 
       await _commentsRef.add({
         'author_id': widget.currentUid,
@@ -1581,13 +1678,11 @@ class _CommentsSheetState extends State<_CommentsSheet> {
         'created_at': FieldValue.serverTimestamp(),
       });
 
-      // Increment comment count on the post document.
       await FirebaseFirestore.instance
           .collection('community_feed')
           .doc(widget.postId)
           .update({'comments': FieldValue.increment(1)});
 
-      // NEW — write comment notification to post owner
       await FirestoreService.instance.writeEngagementNotif(
         postOwnerUid: widget.authorUid,
         actorUid: widget.currentUid,
@@ -1597,12 +1692,6 @@ class _CommentsSheetState extends State<_CommentsSheet> {
         type: 'comment',
         commentText: text,
       );
-
-      // Clear the input and unfocus the keyboard
-      _ctrl.clear();
-      _focus.unfocus();
-      // Notify parent card to bump its local comment count immediately
-      widget.onCommentAdded?.call();
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -1639,7 +1728,6 @@ class _CommentsSheetState extends State<_CommentsSheet> {
           ),
           child: Column(
             children: [
-              // Handle
               const SizedBox(height: 12),
               Container(
                 width: 40,
@@ -1660,7 +1748,6 @@ class _CommentsSheetState extends State<_CommentsSheet> {
               ),
               Divider(color: Colors.grey.shade200, height: 16),
 
-              // Comments list
               Expanded(
                 child: StreamBuilder<QuerySnapshot>(
                   stream: _commentsRef.snapshots(),
@@ -1668,7 +1755,6 @@ class _CommentsSheetState extends State<_CommentsSheet> {
                     if (snapshot.connectionState == ConnectionState.waiting) {
                       return const Center(child: CircularProgressIndicator());
                     }
-                    // Sort client-side — no Firestore index needed
                     final docs = List.of(snapshot.data?.docs ?? []);
                     docs.sort((a, b) {
                       final aTs = (a.data() as Map)['created_at'] as Timestamp?;
@@ -1798,7 +1884,6 @@ class _CommentsSheetState extends State<_CommentsSheet> {
                 ),
               ),
 
-              // Input bar
               Container(
                 padding: EdgeInsets.fromLTRB(
                   12,

@@ -191,14 +191,11 @@ class _ModeratorReviewDetailScreenState
 
     setState(() => _isActing = true);
     try {
-      await FirestoreService.instance.updateReport(widget.reportId, {
-        'status': 'rejected',
-        'rejection_reason': reason,
-        'reviewed_by': uid,
-        'reviewed_at': FieldValue.serverTimestamp(),
-      });
-      // Notification to citizen is handled inside updateReport listener
-      // in firestore_service — ensure Firestore rules allow user_notifications writes
+      await FirestoreService.instance.rejectReport(
+        widget.reportId,
+        uid,
+        reason,
+      );
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(

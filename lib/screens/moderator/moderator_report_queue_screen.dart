@@ -9,6 +9,7 @@ import 'package:timeago/timeago.dart' as timeago;
 import '../../models/report_model.dart';
 import '../../providers/auth_provider.dart';
 import '../../services/firestore_service.dart';
+import '../../widgets/broadcast_alert_overlay.dart';
 import '../../widgets/moderator_bottom_nav.dart';
 import '../../widgets/ai_score_chip.dart';
 import '../../widgets/error_banner.dart';
@@ -22,69 +23,83 @@ class ModeratorReportQueueScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: const Color(0xFFF5F7FA),
-      body: StreamBuilder<List<ReportModel>>(
-        stream: FirestoreService.instance.pendingReportsStream(),
-        builder: (context, snapshot) {
-          final pendingCount = (snapshot.hasData) ? snapshot.data!.length : 0;
+      body: Stack(
+        children: [
+          StreamBuilder<List<ReportModel>>(
+            stream: FirestoreService.instance.pendingReportsStream(),
+            builder: (context, snapshot) {
+              final pendingCount = (snapshot.hasData)
+                  ? snapshot.data!.length
+                  : 0;
 
-          return NestedScrollView(
-            headerSliverBuilder: (context, innerBoxIsScrolled) => [
-              SliverAppBar(
-                title: Row(
-                  children: [
-                    const Text(
-                      'Review Queue',
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontWeight: FontWeight.bold,
-                        fontSize: 20,
-                      ),
-                    ),
-                    if (pendingCount > 0) ...[
-                      const SizedBox(width: 10),
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 8,
-                          vertical: 3,
-                        ),
-                        decoration: BoxDecoration(
-                          color: const Color(0xFFD7263D),
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                        child: Text(
-                          '$pendingCount',
-                          style: const TextStyle(
+              return NestedScrollView(
+                headerSliverBuilder: (context, innerBoxIsScrolled) => [
+                  SliverAppBar(
+                    title: Row(
+                      children: [
+                        const Text(
+                          'Review Queue',
+                          style: TextStyle(
                             color: Colors.white,
-                            fontSize: 12,
                             fontWeight: FontWeight.bold,
+                            fontSize: 20,
                           ),
+                        ),
+                        if (pendingCount > 0) ...[
+                          const SizedBox(width: 10),
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 8,
+                              vertical: 3,
+                            ),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFFD7263D),
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            child: Text(
+                              '$pendingCount',
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 12,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+                    backgroundColor: const Color(0xFF0D47A1),
+                    floating: true,
+                    snap: true,
+                    elevation: 2,
+                    actions: [
+                      IconButton(
+                        icon: const Icon(Icons.menu, color: Colors.white),
+                        tooltip: 'Menu',
+                        onPressed: () => showHamburgerMenu(
+                          context,
+                          role: HamburgerRole.moderator,
                         ),
                       ),
                     ],
-                  ],
-                ),
-                backgroundColor: const Color(0xFF0D47A1),
-                floating: true,
-                snap: true,
-                elevation: 2,
-                actions: [
-                  IconButton(
-                    icon: const Icon(Icons.menu, color: Colors.white),
-                    tooltip: 'Menu',
-                    onPressed: () => showHamburgerMenu(
-                      context,
-                      role: HamburgerRole.moderator,
-                    ),
                   ),
-                ],
-              ),
-            ], // <--- Naisara nang tama ang array ng headerSliverBuilder
-            body: _buildBody(
-              context,
-              snapshot,
-            ), // <--- Diretsong nakapailalim na ngayon sa NestedScrollView
-          );
-        },
+                ], // <--- Naisara nang tama ang array ng headerSliverBuilder
+                body: _buildBody(
+                  context,
+                  snapshot,
+                ), // <--- Diretsong nakapailalim na ngayon sa NestedScrollView
+              );
+            },
+          ),
+
+          // ── Broadcast alert overlay ─────────────────────────────────────
+          // SliverAppBar is inside the scroll view so the Stack starts at the
+          // very top of the screen (status bar included). We must account for
+          // the status bar height + AppBar height manually.
+          BroadcastAlertOverlay(
+            topOffset: MediaQuery.of(context).padding.top + kToolbarHeight + 12,
+          ),
+        ],
       ),
       bottomNavigationBar: const ModeratorBottomNav(currentIndex: 0),
     );

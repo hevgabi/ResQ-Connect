@@ -5,6 +5,7 @@ import '../../models/team_model.dart';
 import '../../services/firestore_service.dart';
 import '../../providers/auth_provider.dart' as app_auth;
 import '../../widgets/rescuer_bottom_nav.dart';
+import '../../widgets/broadcast_alert_overlay.dart';
 import 'rescuer_team_create_screen.dart';
 import 'rescuer_invites_screen.dart';
 
@@ -77,33 +78,41 @@ class RescuerTeamScreen extends StatelessWidget {
           ),
         ],
       ),
-      body: StreamBuilder<TeamModel?>(
-        stream: FirestoreService.instance.rescuerTeamStream(uid),
-        builder: (context, activeSnap) {
-          if (activeSnap.connectionState == ConnectionState.waiting) {
-            return const Center(child: CircularProgressIndicator());
-          }
-
-          final activeTeam = activeSnap.data;
-
-          if (activeTeam != null) {
-            return _ActiveTeamView(team: activeTeam, currentUserId: uid);
-          }
-
-          // Check for pending team
-          return StreamBuilder<TeamModel?>(
-            stream: FirestoreService.instance.rescuerPendingTeamStream(uid),
-            builder: (context, pendingSnap) {
-              final pendingTeam = pendingSnap.data;
-
-              if (pendingTeam != null) {
-                return _PendingTeamView(team: pendingTeam, currentUserId: uid);
+      body: Stack(
+        children: [
+          StreamBuilder<TeamModel?>(
+            stream: FirestoreService.instance.rescuerTeamStream(uid),
+            builder: (context, activeSnap) {
+              if (activeSnap.connectionState == ConnectionState.waiting) {
+                return const Center(child: CircularProgressIndicator());
               }
 
-              return _NoTeamView(currentUserId: uid);
+              final activeTeam = activeSnap.data;
+
+              if (activeTeam != null) {
+                return _ActiveTeamView(team: activeTeam, currentUserId: uid);
+              }
+
+              // Check for pending team
+              return StreamBuilder<TeamModel?>(
+                stream: FirestoreService.instance.rescuerPendingTeamStream(uid),
+                builder: (context, pendingSnap) {
+                  final pendingTeam = pendingSnap.data;
+
+                  if (pendingTeam != null) {
+                    return _PendingTeamView(
+                      team: pendingTeam,
+                      currentUserId: uid,
+                    );
+                  }
+
+                  return _NoTeamView(currentUserId: uid);
+                },
+              );
             },
-          );
-        },
+          ),
+          const BroadcastAlertOverlay(topOffset: 12),
+        ],
       ),
       bottomNavigationBar: const RescuerBottomNav(currentIndex: 2),
     );

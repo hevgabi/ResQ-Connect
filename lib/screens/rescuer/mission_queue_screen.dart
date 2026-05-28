@@ -8,6 +8,7 @@ import '../../models/user_model.dart';
 import '../../services/firestore_service.dart';
 import '../../services/location_service.dart';
 import '../../theme/app_theme.dart';
+import '../../widgets/broadcast_alert_overlay.dart';
 import '../../widgets/rescuer_bottom_nav.dart';
 import 'active_navigation_screen.dart';
 
@@ -163,6 +164,9 @@ class _MissionQueueScreenState extends State<MissionQueueScreen> {
           'id': missionRef.id,
           'sos_id': sos.id,
           'rescuer_id': uid,
+          'citizen_id': sos.citizenId,
+          'citizen_latitude': sos.latitude,
+          'citizen_longitude': sos.longitude,
           'status': 'en_route',
           'created_at': FieldValue.serverTimestamp(),
           'completed_at': null,
@@ -221,83 +225,99 @@ class _MissionQueueScreenState extends State<MissionQueueScreen> {
           ),
         ],
       ),
-      body: Column(
+      body: Stack(
         children: [
-          // Duty banner controller UI
-          Container(
-            color: Colors.white,
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-            child: Row(
-              children: [
-                Expanded(
-                  child: SwitchListTile(
-                    contentPadding: EdgeInsets.zero,
-                    title: Text(
-                      _onDuty ? 'On Duty' : 'Off Duty',
-                      style: TextStyle(
-                        fontWeight: FontWeight.bold,
-                        color: _onDuty
-                            ? AppTheme.successGreen
-                            : AppTheme.textSecondary,
+          Column(
+            children: [
+              // Duty banner controller UI
+              Container(
+                color: Colors.white,
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 8,
+                ),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: SwitchListTile(
+                        contentPadding: EdgeInsets.zero,
+                        title: Text(
+                          _onDuty ? 'On Duty' : 'Off Duty',
+                          style: TextStyle(
+                            fontWeight: FontWeight.bold,
+                            color: _onDuty
+                                ? AppTheme.successGreen
+                                : AppTheme.textSecondary,
+                          ),
+                        ),
+                        subtitle: Text(
+                          _onDuty
+                              ? 'Accepting missions'
+                              : 'Not accepting missions',
+                          style: const TextStyle(fontSize: 12),
+                        ),
+                        value: _onDuty,
+                        activeThumbColor: AppTheme.successGreen,
+                        onChanged: _toggleDuty,
                       ),
                     ),
-                    subtitle: Text(
-                      _onDuty ? 'Accepting missions' : 'Not accepting missions',
-                      style: const TextStyle(fontSize: 12),
-                    ),
-                    value: _onDuty,
-                    activeThumbColor: AppTheme.successGreen,
-                    onChanged: _toggleDuty,
-                  ),
+                  ],
                 ),
-              ],
-            ),
-          ),
-          const Divider(height: 1),
+              ),
+              const Divider(height: 1),
 
-          // StreamBuilder Engine para sa Open SOS Feed
-          Expanded(
-            child: !_onDuty
-                ? _buildOffDutyState()
-                : StreamBuilder<List<SOSRequestModel>>(
-                    // <--- FIXED: SOSRequestModel name alignment
-                    stream: _firestoreService.openSOSStream(
-                      excludeRescuerId: uid,
-                    ),
-                    builder: (context, snapshot) {
-                      if (snapshot.connectionState == ConnectionState.waiting) {
-                        return const Center(child: CircularProgressIndicator());
-                      }
+              // StreamBuilder Engine para sa Open SOS Feed
+              Expanded(
+                child: !_onDuty
+                    ? _buildOffDutyState()
+                    : StreamBuilder<List<SOSRequestModel>>(
+                        // <--- FIXED: SOSRequestModel name alignment
+                        stream: _firestoreService.openSOSStream(
+                          excludeRescuerId: uid,
+                        ),
+                        builder: (context, snapshot) {
+                          if (snapshot.connectionState ==
+                              ConnectionState.waiting) {
+                            return const Center(
+                              child: CircularProgressIndicator(),
+                            );
+                          }
 
-                      final sosList = snapshot.data ?? [];
+                          final sosList = snapshot.data ?? [];
 
-                      if (sosList.isEmpty) {
-                        return _buildEmptyState();
-                      }
+                          if (sosList.isEmpty) {
+                            return _buildEmptyState();
+                          }
 
-                      return ListView.separated(
-                        padding: const EdgeInsets.all(12),
-                        itemCount: sosList.length,
-                        separatorBuilder: (_, __) => const SizedBox(height: 10),
-                        itemBuilder: (context, index) {
-                          final sos = sosList[index];
-                          final priorityStr = _priorityLabel(sos);
+                          return ListView.separated(
+                            padding: const EdgeInsets.all(12),
+                            itemCount: sosList.length,
+                            separatorBuilder: (_, __) =>
+                                const SizedBox(height: 10),
+                            itemBuilder: (context, index) {
+                              final sos = sosList[index];
+                              final priorityStr = _priorityLabel(sos);
 
-                          return _MissionCard(
-                            sos: sos,
-                            priority: priorityStr,
-                            priorityColor: _priorityColor(priorityStr),
-                            timeElapsed: _timeElapsed(sos.createdAt),
-                            distanceKm: _distanceKm(sos),
-                            firestoreService: _firestoreService,
-                            onAccept: () => _acceptMission(sos),
-                            accepting: _accepting,
+                              return _MissionCard(
+                                sos: sos,
+                                priority: priorityStr,
+                                priorityColor: _priorityColor(priorityStr),
+                                timeElapsed: _timeElapsed(sos.createdAt),
+                                distanceKm: _distanceKm(sos),
+                                firestoreService: _firestoreService,
+                                onAccept: () => _acceptMission(sos),
+                                accepting: _accepting,
+                              );
+                            },
                           );
                         },
-                      );
-                    },
-                  ),
+                      ),
+              ),
+            ],
           ),
+
+          // ── Broadcast alert overlay ───────────────────────────────────────
+          const BroadcastAlertOverlay(topOffset: 12),
         ],
       ),
       bottomNavigationBar: RescuerBottomNav(currentIndex: 0),
@@ -524,6 +544,10 @@ class _MissionCard extends StatelessWidget {
                       ],
                     ),
                     const SizedBox(height: 8),
+                    if (sos.category != null) ...[
+                      _CategoryChip(category: sos.category!),
+                      const SizedBox(height: 8),
+                    ],
                     Text(
                       sos.description ?? 'No description provided.',
                       maxLines: 2,
@@ -560,6 +584,69 @@ class _MissionCard extends StatelessWidget {
           ),
         );
       },
+    );
+  }
+}
+
+class _CategoryChip extends StatelessWidget {
+  final String category;
+  const _CategoryChip({required this.category});
+
+  static const _labels = <String, String>{
+    'natural_disaster': 'Natural Disaster',
+    'accident': 'Accident',
+    'medical': 'Medical',
+    'fire': 'Fire',
+    'crime': 'Crime',
+    'rescue': 'Rescue / Trapped',
+  };
+
+  static const _icons = <String, IconData>{
+    'natural_disaster': Icons.storm_rounded,
+    'accident': Icons.car_crash_rounded,
+    'medical': Icons.medical_services_rounded,
+    'fire': Icons.local_fire_department_rounded,
+    'crime': Icons.security_rounded,
+    'rescue': Icons.warning_amber_rounded,
+  };
+
+  static const _colors = <String, Color>{
+    'natural_disaster': Color(0xFF1565C0),
+    'accident': Color(0xFFFF6D00),
+    'medical': Color(0xFFE53935),
+    'fire': Color(0xFFFF8F00),
+    'crime': Color(0xFF6A1B9A),
+    'rescue': Color(0xFFF9A825),
+  };
+
+  @override
+  Widget build(BuildContext context) {
+    final label = _labels[category] ?? category;
+    final icon = _icons[category] ?? Icons.help_outline_rounded;
+    final color = _colors[category] ?? AppTheme.primaryBlue;
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.1),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: color.withValues(alpha: 0.35)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 13, color: color),
+          const SizedBox(width: 5),
+          Text(
+            label,
+            style: TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
+              color: color,
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
