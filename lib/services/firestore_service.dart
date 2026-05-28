@@ -215,44 +215,28 @@ class FirestoreService {
   /// Returns a list of raw maps combining both 'rescuers' and 'users' data.
   /// Each map contains all rescuer fields plus 'display_name', 'email',
   /// 'photo_url' from the users collection.
-  ///
-  /// Uses a single batched fetch for all user profiles (via whereIn) instead
-  /// of one Firestore read per rescuer, eliminating the N+1 query pattern.
   Stream<List<Map<String, dynamic>>> allRescuersStream() {
     return _rescuers.snapshots().asyncMap((snap) async {
-      if (snap.docs.isEmpty) return [];
+      final result = <Map<String, dynamic>>[];
 
-      final rescuerDocs = snap.docs;
-      final ids = rescuerDocs.map((d) => d.id).toList();
-
-      // Firestore whereIn supports up to 30 values per query.
-      // Batch into chunks of 30 and fetch all user docs in parallel.
-      final userMap = <String, Map<String, dynamic>>{};
-      const chunkSize = 30;
-      final futures = <Future<void>>[];
-
-      for (int i = 0; i < ids.length; i += chunkSize) {
-        final chunk = ids.skip(i).take(chunkSize).toList();
-        futures.add(
-          _users
-              .where(FieldPath.documentId, whereIn: chunk)
-              .get()
-              .then((userSnap) {
-                for (final userDoc in userSnap.docs) {
-                  userMap[userDoc.id] = userDoc.data() as Map<String, dynamic>;
-                }
-              })
-              .catchError((_) {}),
-        );
-      }
-      await Future.wait(futures);
-
-      return rescuerDocs.map((doc) {
+      for (final doc in snap.docs) {
         final rescuerData = doc.data() as Map<String, dynamic>;
-        final userData = userMap[doc.id] ?? {};
-        return {
+
+        // Fetch matching user profile for display name, email, photo
+        Map<String, dynamic> userData = {};
+        try {
+          final userDoc = await _users.doc(doc.id).get();
+          if (userDoc.exists) {
+            userData = userDoc.data() as Map<String, dynamic>;
+          }
+        } catch (_) {
+          // If user doc missing, continue with empty userData
+        }
+
+        result.add({
           'id': doc.id,
           ...rescuerData,
+          // Overlay user profile fields (display_name wins over rescuer copy)
           'display_name':
               userData['display_name'] ??
               rescuerData['display_name'] ??
@@ -260,8 +244,10 @@ class FirestoreService {
           'email': userData['email'] ?? rescuerData['email'] ?? '',
           'photo_url': userData['photo_url'] ?? rescuerData['photo_url'] ?? '',
           'phone': userData['phone'] ?? rescuerData['phone'] ?? '',
-        };
-      }).toList();
+        });
+      }
+
+      return result;
     });
   }
 
@@ -352,16 +338,11 @@ class FirestoreService {
 
   /// Live stream of count of pending approvals.
   /// Used in the admin overview KPI card and nav badge.
-  /// Uses Firestore count() aggregation — zero document data is transferred.
   Stream<int> pendingApprovalsCountStream() {
-    // Firestore does not expose a native count stream, so we map the
-    // full snapshot stream but only read .size (no doc data transferred
-    // when using count() aggregation queries). For a live badge the
-    // snapshot-based approach is necessary; we just avoid iterating docs.
     return _users
         .where('approval_status', isEqualTo: 'pending')
         .snapshots()
-        .map((snap) => snap.size);
+        .map((snap) => snap.docs.length);
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
@@ -443,9 +424,6 @@ class FirestoreService {
     String moderatorId,
     String reason,
   ) async {
-    // Set status AND notif_read in a single atomic write — same reason as
-    // publishReport: prevents the race condition where the stream sees
-    // status=rejected but notif_read is still null so the toast never fires.
     await _reports.doc(reportId).update({
       'status': 'rejected',
       'rejection_reason': reason,
@@ -460,20 +438,11 @@ class FirestoreService {
         (reportData['author_id'] ?? reportData['reporter_id'] ?? '') as String;
     final postTitle =
         (reportData['title'] ?? reportData['type'] ?? 'Your post') as String;
-
-    // notif_read already set above — no second round-trip needed.
   }
 
   Future<void> publishReport(String reportId, String moderatorId) async {
     final now = FieldValue.serverTimestamp();
 
-    // Set status AND notif_read in a single atomic write so the citizen's
-    // real-time stream (which queries for notif_read==false AND
-    // status in [published,rejected]) sees the document appear in one shot.
-    // Previously these were two separate writes which caused a race condition:
-    // the stream would fire after the first write (status=published) but
-    // notif_read was still null, so the query filter didn't match yet and
-    // the toast never appeared while the citizen was already on the home screen.
     await _reports.doc(reportId).update({
       'status': 'published',
       'moderator_id': moderatorId,
@@ -484,9 +453,6 @@ class FirestoreService {
     final reportDoc = await _reports.doc(reportId).get();
     final reportData = reportDoc.data() as Map<String, dynamic>;
 
-    // Normalize fields: citizen posts use text/media_urls/author_name/author_id
-    // while incident reports use body/photo_urls/reporter_name/reporter_id.
-    // Both are unified here so the community feed is always consistent.
     final bodyText = (reportData['text'] ?? reportData['body'] ?? '') as String;
     final mediaUrls = List<String>.from(
       reportData['media_urls'] ?? reportData['photo_urls'] ?? [],
@@ -505,49 +471,32 @@ class FirestoreService {
     await _communityFeed.doc(reportId).set({
       'report_id': reportId,
       'source': source,
-      // Unified content fields
       'text': bodyText,
       'body': bodyText,
       'title': reportData['title'] ?? '',
       'category': category,
       'type': category,
-      // Unified media
       'media_urls': mediaUrls,
       'photo_urls': mediaUrls,
       'has_video': reportData['has_video'] ?? false,
-      // Location
       'latitude': reportData['latitude'],
       'longitude': reportData['longitude'],
       'address': reportData['address'],
-      // Author fields unified
       'author_name': authorName,
       'reporter_name': authorName,
       'author_id': authorId,
       'reporter_id': authorId,
-      // Moderation
       'ai_score': reportData['ai_score'],
       'moderator_id': moderatorId,
       'published_at': now,
-      // Engagement counters — must be initialised so citizens can
-      // increment/decrement them without PERMISSION_DENIED errors.
       'likes': 0,
       'liked_by': [],
       'comments': 0,
     });
-
-    // notif_read was already set to false in the initial status update above
-    // (single atomic write). No second round-trip needed.
   }
 
   // ── Community Feed Writes ──────────────────────────────────────────────────
 
-  /// Submits a citizen post to the moderation queue (reports collection).
-  /// The moderator will see it in their Review Queue and can approve/reject.
-  /// Once approved it gets published to the community feed via publishReport().
-  ///
-  /// Field mapping: citizen posts use author_id/author_name/text/media_urls,
-  /// but ReportModel (used by moderator queue) expects reporter_id/reporter_name/body/photo_urls.
-  /// We write BOTH so both sides work without needing model changes.
   Future<String> createCommunityPost(Map<String, dynamic> data) async {
     final authorId = data['author_id'] ?? '';
     final authorName = data['author_name'] ?? 'Anonymous';
@@ -557,7 +506,6 @@ class FirestoreService {
 
     final ref = await _reports.add({
       ...data,
-      // Fields for ReportModel / moderator queue display
       'reporter_id': authorId,
       'reporter_name': authorName,
       'body': bodyText,
@@ -566,7 +514,6 @@ class FirestoreService {
       'title': 'Community Post',
       'latitude': data['latitude'] ?? 0.0,
       'longitude': data['longitude'] ?? 0.0,
-      // Moderation state
       'status': 'pending',
       'source': 'citizen_post',
       'created_at': FieldValue.serverTimestamp(),
@@ -663,11 +610,7 @@ class FirestoreService {
     return snap.docs.map((doc) => ReportModel.fromFirestore(doc)).toList();
   }
 
-  /// Fetches all posts submitted by a citizen — handles both citizen_post
-  /// (saved with author_id) and incident reports (saved with reporter_id).
   Future<List<ReportModel>> getPostsByUser(String uid, {int limit = 10}) async {
-    // Citizen posts use author_id; incident reports use reporter_id.
-    // We query both and merge, then sort by created_at descending.
     final byAuthor = await _reports
         .where('author_id', isEqualTo: uid)
         .orderBy('created_at', descending: true)
@@ -695,8 +638,6 @@ class FirestoreService {
   }
 
   /// Stream of citizen community posts by a specific user (source='citizen_post').
-  /// Queries the `reports` collection where posts live before AND after approval.
-  /// Excludes rejected posts. Ordered by created_at descending.
   Stream<List<Map<String, dynamic>>> userCommunityPostsStream(String uid) {
     return _reports
         .where('author_id', isEqualTo: uid)
@@ -714,7 +655,6 @@ class FirestoreService {
   }
 
   /// Stream of incident reports by a specific user (source='incident_report').
-  /// Excludes rejected. Ordered by created_at descending.
   Stream<List<ReportModel>> userReportsStream(String uid) {
     return _reports
         .where('reporter_id', isEqualTo: uid)
@@ -728,9 +668,7 @@ class FirestoreService {
         );
   }
 
-  /// Deletes a citizen post from both `reports` and `community_feed` (if published).
   Future<void> deleteCommunityPost(String postId) async {
-    // Delete published copy + comments from community_feed if it exists
     try {
       final commentsSnap = await _communityFeed
           .doc(postId)
@@ -740,14 +678,10 @@ class FirestoreService {
         await doc.reference.delete();
       }
       await _communityFeed.doc(postId).delete();
-    } catch (_) {
-      // May not exist in community_feed if still pending
-    }
-    // Always delete the source document from reports
+    } catch (_) {}
     await _reports.doc(postId).delete();
   }
 
-  /// Deletes an incident report from `reports` and its published copy if any.
   Future<void> deleteReport(String reportId) async {
     try {
       final commentsSnap = await _communityFeed
@@ -758,13 +692,10 @@ class FirestoreService {
         await doc.reference.delete();
       }
       await _communityFeed.doc(reportId).delete();
-    } catch (_) {
-      // May not be published yet
-    }
+    } catch (_) {}
     await _reports.doc(reportId).delete();
   }
 
-  /// Returns the set of alert IDs the user has already seen (stored on user doc).
   Future<Set<String>> getSeenAlertIds(String uid) async {
     final doc = await _users.doc(uid).get();
     if (!doc.exists) return {};
@@ -773,17 +704,12 @@ class FirestoreService {
     return list.map((e) => e.toString()).toSet();
   }
 
-  /// Persists the given alert IDs as "seen" on the user doc.
   Future<void> markAlertsAsSeen(String uid, List<String> alertIds) async {
     await _users.doc(uid).set({
       'seen_alert_ids': alertIds,
     }, SetOptions(merge: true));
   }
 
-  /// Streams reports belonging to a citizen that have an unread notification
-  /// (notif_read == false). Once the citizen dismisses a toast, markReportNotifRead
-  /// sets notif_read = true and that doc drops out of this stream automatically,
-  /// so it can never re-fire on rebuild or hot-restart.
   Stream<List<Map<String, dynamic>>> citizenNotificationsStream(String uid) {
     return _reports
         .where('author_id', isEqualTo: uid)
@@ -800,9 +726,6 @@ class FirestoreService {
         );
   }
 
-  /// One-time server fetch for unread notifications — bypasses Firestore's
-  /// local cache so the toast fires immediately on first open, even when the
-  /// approval just happened and the cache hasn't caught up yet.
   Future<List<Map<String, dynamic>>> fetchUnreadNotificationsFromServer(
     String uid,
   ) async {
@@ -819,17 +742,10 @@ class FirestoreService {
     }).toList();
   }
 
-  /// Marks a citizen's report notification as read by setting notif_read = true.
   Future<void> markReportNotifRead(String reportId) async {
     await _reports.doc(reportId).update({'notif_read': true});
   }
 
-  /// Streams a citizen's SOS requests with meaningful statuses
-  /// (assigned / resolved / cancelled). Shows all entries so the section
-  /// never goes blank after the citizen has already seen the update.
-  /// Streams SOS requests with unread notifications for a citizen.
-  /// Only emits docs where sos_notif_read == false so the dot and list
-  /// clear automatically once the user views them.
   Stream<List<Map<String, dynamic>>> citizenSosNotificationsStream(String uid) {
     return _sosRequests
         .where('citizen_id', isEqualTo: uid)
@@ -846,13 +762,10 @@ class FirestoreService {
         });
   }
 
-  /// Marks an SOS notification as read.
   Future<void> markSosNotifRead(String sosId) async {
     await _sosRequests.doc(sosId).update({'sos_notif_read': true});
   }
 
-  /// Streams all posts submitted by the citizen (for "pending" indicator).
-  /// Returns pending posts so the citizen knows their post is under review.
   Stream<List<Map<String, dynamic>>> citizenPendingPostsStream(String uid) {
     return _reports
         .where('author_id', isEqualTo: uid)
@@ -872,21 +785,17 @@ class FirestoreService {
   // ENGAGEMENT NOTIFICATIONS
   // ═══════════════════════════════════════════════════════════════════════════
 
-  /// Writes a like or comment notification to the post owner's subcollection.
-  /// Skips writing when actor == post owner (no self-notifications).
-  /// Like writes are deduplicated — one notif per (actor, post).
   Future<void> writeEngagementNotif({
     required String postOwnerUid,
     required String actorUid,
     required String actorName,
     required String postId,
     required String postSnippet,
-    required String type, // 'like' | 'comment'
+    required String type,
     String? commentText,
   }) async {
     if (actorUid == postOwnerUid) return;
 
-    // Deduplicate likes: one per (actor, post)
     if (type == 'like') {
       final existing = await _users
           .doc(postOwnerUid)
@@ -911,7 +820,6 @@ class FirestoreService {
     });
   }
 
-  /// Removes the like notification when a user un-likes a post.
   Future<void> deleteEngagementLikeNotif({
     required String postOwnerUid,
     required String actorUid,
@@ -933,7 +841,6 @@ class FirestoreService {
     }
   }
 
-  /// Real-time stream of engagement notifications for [uid], newest first.
   Stream<List<Map<String, dynamic>>> engagementNotificationsStream(String uid) {
     return _users
         .doc(uid)
@@ -949,18 +856,15 @@ class FirestoreService {
         );
   }
 
-  /// Count of unread engagement notifications — used for the red dot.
-  /// Uses snap.size to avoid iterating doc data for a count-only query.
   Stream<int> unreadEngagementCountStream(String uid) {
     return _users
         .doc(uid)
         .collection('notifications')
         .where('is_read', isEqualTo: false)
         .snapshots()
-        .map((snap) => snap.size);
+        .map((snap) => snap.docs.length);
   }
 
-  /// Marks all unread engagement notifications for [uid] as read.
   Future<void> markEngagementNotifsRead(String uid) async {
     final snap = await _users
         .doc(uid)
@@ -1006,8 +910,6 @@ class FirestoreService {
   CollectionReference get _spottedEmergencies =>
       _db.collection('spotted_emergencies');
 
-  /// Live stream of spotted emergencies, newest first.
-  /// Optionally filter by [status]: 'pending' | 'assigned' | 'dismissed' | null (all).
   Stream<List<Map<String, dynamic>>> spottedEmergenciesStream({
     String? status,
   }) {
@@ -1022,16 +924,13 @@ class FirestoreService {
     );
   }
 
-  /// Count of pending spotted emergencies — for nav badge.
-  /// Uses snap.size to avoid iterating doc data for a count-only query.
   Stream<int> pendingSpottedEmergenciesCountStream() {
     return _spottedEmergencies
         .where('status', isEqualTo: 'pending')
         .snapshots()
-        .map((snap) => snap.size);
+        .map((snap) => snap.docs.length);
   }
 
-  /// Dismiss a spotted emergency.
   Future<void> dismissSpottedEmergency(String docId) async {
     await _spottedEmergencies.doc(docId).update({
       'status': 'dismissed',
@@ -1040,7 +939,6 @@ class FirestoreService {
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
-
   // TEAMS
   // ═══════════════════════════════════════════════════════════════════════════
 
@@ -1056,12 +954,11 @@ class FirestoreService {
   }
 
   /// Stream of pending teams — for admin approval badge.
-  /// Uses snap.size to avoid iterating doc data for a count-only query.
   Stream<int> pendingTeamsCountStream() {
     return _teams
         .where('status', isEqualTo: 'pending')
         .snapshots()
-        .map((snap) => snap.size);
+        .map((snap) => snap.docs.length);
   }
 
   /// Stream of a rescuer's team (null if not in any active team).
@@ -1122,6 +1019,7 @@ class FirestoreService {
     required String name,
     required String description,
     required String leaderId,
+    Map<String, dynamic>? leaderRequirements,
   }) async {
     final ref = await _teams.add({
       'name': name,
@@ -1130,6 +1028,8 @@ class FirestoreService {
       'member_ids': [leaderId],
       'status': 'pending',
       'created_at': FieldValue.serverTimestamp(),
+      if (leaderRequirements != null && leaderRequirements.isNotEmpty)
+        'leader_requirements': leaderRequirements,
     });
     return ref.id;
   }
@@ -1179,8 +1079,7 @@ class FirestoreService {
     await _teamInvites.doc(inviteId).update({'status': 'declined'});
   }
 
-  /// Submits a team to admin for approval. Team must exist and be in 'draft'.
-  /// For simplicity, teams start as 'pending' immediately on creation.
+  /// Submits a team to admin for approval.
   Future<void> submitTeamForApproval(String teamId) async {
     await _teams.doc(teamId).update({'status': 'pending'});
   }
@@ -1205,19 +1104,57 @@ class FirestoreService {
     });
   }
 
+  /// Leader requests to disband their active team. Sets disband_status=pending
+  /// so the admin can review it before the team is actually deactivated.
+  Future<void> requestDisbandTeam({
+    required String teamId,
+    required String reason,
+  }) async {
+    await _teams.doc(teamId).update({
+      'disband_status': 'pending',
+      'disband_reason': reason,
+      'disband_requested_at': FieldValue.serverTimestamp(),
+      // Clear any previous rejection so the UI shows the fresh request
+      'disband_rejected_by': null,
+      'disband_rejection_reason': null,
+    });
+  }
+
+  /// Admin approves the disband request: sets team status to 'disbanded'
+  /// and clears the disband_status flag.
+  Future<void> approveDisbandTeam(String teamId, String adminId) async {
+    await _teams.doc(teamId).update({
+      'status': 'disbanded',
+      'disband_status': 'approved',
+      'disband_approved_by': adminId,
+      'disband_approved_at': FieldValue.serverTimestamp(),
+    });
+  }
+
+  /// Admin rejects the disband request: clears disband_status and saves reason.
+  Future<void> rejectDisbandTeam(
+    String teamId,
+    String adminId,
+    String reason,
+  ) async {
+    await _teams.doc(teamId).update({
+      'disband_status': 'rejected',
+      'disband_rejected_by': adminId,
+      'disband_rejection_reason': reason,
+      'disband_requested_at': null,
+    });
+  }
+
   /// Gets all approved rescuers (for invite search).
   Future<List<Map<String, dynamic>>> getApprovedRescuers() async {
-    final snap = await _users
-        .where('role', isEqualTo: 'rescuer')
-        .where('approval_status', isEqualTo: 'approved')
-        .get();
+    final snap = await _users.where('role', isEqualTo: 'rescuer').get();
     return snap.docs
         .map((doc) => {'uid': doc.id, ...doc.data() as Map<String, dynamic>})
+        .where((u) => u['approval_status'] == 'approved')
         .toList();
   }
 
   /// Stream of mission statuses for team members — for situational awareness.
-  /// Returns a map of rescuerId -> mission status string (or null if no active mission).
   Stream<Map<String, String?>> teamMemberMissionStatusStream(
     List<String> memberIds,
   ) {
@@ -1244,8 +1181,20 @@ class FirestoreService {
         });
   }
 
-  // ═══════════════════════════════════════════════════════════════════════════
+  /// Stream of the active mission assigned to the team leader.
+  Stream<MissionModel?> teamLeaderActiveMissionStream(String leaderId) {
+    return _missions
+        .where('rescuer_id', isEqualTo: leaderId)
+        .where('status', whereIn: ['en_route', 'on_site'])
+        .limit(1)
+        .snapshots()
+        .map((snap) {
+          if (snap.docs.isEmpty) return null;
+          return MissionModel.fromFirestore(snap.docs.first);
+        });
+  }
 
+  // ═══════════════════════════════════════════════════════════════════════════
   // MODERATOR STATISTICS
   // ═══════════════════════════════════════════════════════════════════════════
 
@@ -1256,7 +1205,6 @@ class FirestoreService {
         .snapshots();
 
     return reviewedStream.asyncMap((reviewedSnap) async {
-      // Use count() aggregation — transfers zero document data.
       final pendingSnap = await _reports
           .where('status', isEqualTo: 'pending')
           .count()

@@ -11,6 +11,14 @@ class TeamModel {
   final String? approvedBy;
   final DateTime? approvedAt;
   final String? rejectionReason;
+  // Leader qualifications submitted during team creation for admin review
+  final Map<String, dynamic>? leaderRequirements;
+  // Disband request fields
+  final String? disbandStatus; // pending | rejected (null = no request)
+  final String? disbandReason;
+  final DateTime? disbandRequestedAt;
+  final String? disbandRejectedBy;
+  final String? disbandRejectionReason;
 
   TeamModel({
     required this.id,
@@ -23,6 +31,12 @@ class TeamModel {
     this.approvedBy,
     this.approvedAt,
     this.rejectionReason,
+    this.leaderRequirements,
+    this.disbandStatus,
+    this.disbandReason,
+    this.disbandRequestedAt,
+    this.disbandRejectedBy,
+    this.disbandRejectionReason,
   });
 
   factory TeamModel.fromFirestore(DocumentSnapshot doc) {
@@ -38,6 +52,13 @@ class TeamModel {
       approvedBy: data['approved_by'],
       approvedAt: (data['approved_at'] as Timestamp?)?.toDate(),
       rejectionReason: data['rejection_reason'],
+      leaderRequirements: data['leader_requirements'] as Map<String, dynamic>?,
+      disbandStatus: data['disband_status'],
+      disbandReason: data['disband_reason'],
+      disbandRequestedAt: (data['disband_requested_at'] as Timestamp?)
+          ?.toDate(),
+      disbandRejectedBy: data['disband_rejected_by'],
+      disbandRejectionReason: data['disband_rejection_reason'],
     );
   }
 
@@ -52,6 +73,14 @@ class TeamModel {
       if (approvedBy != null) 'approved_by': approvedBy,
       if (approvedAt != null) 'approved_at': Timestamp.fromDate(approvedAt!),
       if (rejectionReason != null) 'rejection_reason': rejectionReason,
+      if (leaderRequirements != null) 'leader_requirements': leaderRequirements,
+      if (disbandStatus != null) 'disband_status': disbandStatus,
+      if (disbandReason != null) 'disband_reason': disbandReason,
+      if (disbandRequestedAt != null)
+        'disband_requested_at': Timestamp.fromDate(disbandRequestedAt!),
+      if (disbandRejectedBy != null) 'disband_rejected_by': disbandRejectedBy,
+      if (disbandRejectionReason != null)
+        'disband_rejection_reason': disbandRejectionReason,
     };
   }
 }

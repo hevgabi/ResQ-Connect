@@ -16,10 +16,14 @@ class _AdminTeamsScreenState extends State<AdminTeamsScreen> {
   static const _filters = [
     ('pending', 'Pending'),
     ('active', 'Active'),
+    ('disband', 'Disband'),
     ('rejected', 'Rejected'),
   ];
 
   List<TeamModel> _applyFilter(List<TeamModel> teams) {
+    if (_filter == 'disband') {
+      return teams.where((t) => t.disbandStatus == 'pending').toList();
+    }
     return teams.where((t) => t.status == _filter).toList();
   }
 
@@ -147,6 +151,8 @@ class _AdminTeamsScreenState extends State<AdminTeamsScreen> {
                                 ? 'No pending team applications'
                                 : _filter == 'active'
                                 ? 'No active teams'
+                                : _filter == 'disband'
+                                ? 'No pending disband requests'
                                 : 'No rejected teams',
                             style: const TextStyle(
                               color: Color(0xFF546E7A),
@@ -164,13 +170,21 @@ class _AdminTeamsScreenState extends State<AdminTeamsScreen> {
                   itemCount: teams.length,
                   separatorBuilder: (_, __) => const SizedBox(height: 12),
                   itemBuilder: (context, index) {
+                    final team = teams[index];
+                    if (_filter == 'disband') {
+                      return _TeamCard(
+                        team: team,
+                        onApproveDisband: () => _approveDisband(team),
+                        onRejectDisband: () => _rejectDisband(team),
+                      );
+                    }
                     return _TeamCard(
-                      team: teams[index],
+                      team: team,
                       onApprove: _filter == 'pending'
-                          ? () => _approve(teams[index])
+                          ? () => _approve(team)
                           : null,
                       onReject: _filter == 'pending'
-                          ? () => _reject(teams[index])
+                          ? () => _reject(team)
                           : null,
                     );
                   },
@@ -284,36 +298,170 @@ class _AdminTeamsScreenState extends State<AdminTeamsScreen> {
       }
     }
   }
+
+  Future<void> _approveDisband(TeamModel team) async {
+    final adminId = FirebaseAuth.instance.currentUser?.uid ?? '';
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Approve Disband'),
+        content: Text(
+          'Approving this will permanently disband "${team.name}" and remove all members. This cannot be undone.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFFD7263D),
+            ),
+            child: const Text(
+              'Approve Disband',
+              style: TextStyle(color: Colors.white),
+            ),
+          ),
+        ],
+      ),
+    );
+    if (confirm != true) return;
+    try {
+      await FirestoreService.instance.approveDisbandTeam(team.id, adminId);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('"${team.name}" has been disbanded.')),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Failed to disband team.')),
+        );
+      }
+    }
+  }
+
+  Future<void> _rejectDisband(TeamModel team) async {
+    final adminId = FirebaseAuth.instance.currentUser?.uid ?? '';
+    final reasonCtrl = TextEditingController();
+    final formKey = GlobalKey<FormState>();
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Reject Disband Request'),
+        content: Form(
+          key: formKey,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                'Provide a reason for rejecting the disband of "${team.name}":',
+              ),
+              const SizedBox(height: 12),
+              TextFormField(
+                controller: reasonCtrl,
+                maxLines: 3,
+                decoration: InputDecoration(
+                  hintText: 'Reason...',
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                ),
+                validator: (v) =>
+                    (v == null || v.trim().isEmpty) ? 'Required' : null,
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              if (formKey.currentState!.validate()) {
+                Navigator.pop(ctx, true);
+              }
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFF0D47A1),
+            ),
+            child: const Text('Reject', style: TextStyle(color: Colors.white)),
+          ),
+        ],
+      ),
+    );
+    if (confirm != true) return;
+    try {
+      await FirestoreService.instance.rejectDisbandTeam(
+        team.id,
+        adminId,
+        reasonCtrl.text.trim(),
+      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Disband request for "${team.name}" rejected.'),
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Failed to reject disband request.')),
+        );
+      }
+    }
+  }
 }
 
 class _TeamCard extends StatelessWidget {
   final TeamModel team;
   final VoidCallback? onApprove;
   final VoidCallback? onReject;
+  final VoidCallback? onApproveDisband;
+  final VoidCallback? onRejectDisband;
 
-  const _TeamCard({required this.team, this.onApprove, this.onReject});
+  const _TeamCard({
+    required this.team,
+    this.onApprove,
+    this.onReject,
+    this.onApproveDisband,
+    this.onRejectDisband,
+  });
 
   @override
   Widget build(BuildContext context) {
+    final isDisbandView = onApproveDisband != null;
+
     Color statusColor;
     String statusLabel;
     IconData statusIcon;
 
-    switch (team.status) {
-      case 'active':
-        statusColor = const Color(0xFF1FAA59);
-        statusLabel = 'Active';
-        statusIcon = Icons.check_circle;
-        break;
-      case 'rejected':
-        statusColor = const Color(0xFFD7263D);
-        statusLabel = 'Rejected';
-        statusIcon = Icons.cancel;
-        break;
-      default:
-        statusColor = const Color(0xFFFF6B00);
-        statusLabel = 'Pending';
-        statusIcon = Icons.hourglass_top_rounded;
+    if (isDisbandView) {
+      statusColor = const Color(0xFFD7263D);
+      statusLabel = 'Disband Requested';
+      statusIcon = Icons.group_remove_outlined;
+    } else {
+      switch (team.status) {
+        case 'active':
+          statusColor = const Color(0xFF1FAA59);
+          statusLabel = 'Active';
+          statusIcon = Icons.check_circle;
+          break;
+        case 'rejected':
+          statusColor = const Color(0xFFD7263D);
+          statusLabel = 'Rejected';
+          statusIcon = Icons.cancel;
+          break;
+        default:
+          statusColor = const Color(0xFFFF6B00);
+          statusLabel = 'Pending';
+          statusIcon = Icons.hourglass_top_rounded;
+      }
     }
 
     return Container(
@@ -403,6 +551,124 @@ class _TeamCard extends StatelessWidget {
             ],
           ),
 
+          // Leader requirements — shown to admin on pending teams
+          if (team.status == 'pending' &&
+              team.leaderRequirements != null &&
+              team.leaderRequirements!.isNotEmpty) ...[
+            const SizedBox(height: 12),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: const Color(0xFF0D47A1).withOpacity(0.04),
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(
+                  color: const Color(0xFF0D47A1).withOpacity(0.15),
+                ),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Row(
+                    children: [
+                      Icon(
+                        Icons.verified_user_outlined,
+                        size: 14,
+                        color: Color(0xFF0D47A1),
+                      ),
+                      SizedBox(width: 6),
+                      Text(
+                        'Leader Qualifications',
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.bold,
+                          color: Color(0xFF0D47A1),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  _ReqRow(
+                    label: 'Experience',
+                    value:
+                        '${team.leaderRequirements!['years_experience'] ?? '-'} year(s)',
+                  ),
+                  if ((team.leaderRequirements!['certifications'] ?? '')
+                      .toString()
+                      .isNotEmpty)
+                    _ReqRow(
+                      label: 'Certifications',
+                      value: team.leaderRequirements!['certifications']
+                          .toString(),
+                    ),
+                  if ((team.leaderRequirements!['training'] ?? '')
+                      .toString()
+                      .isNotEmpty)
+                    _ReqRow(
+                      label: 'Training',
+                      value: team.leaderRequirements!['training'].toString(),
+                    ),
+                  if ((team.leaderRequirements!['motivation'] ?? '')
+                      .toString()
+                      .isNotEmpty)
+                    _ReqRow(
+                      label: 'Motivation',
+                      value: team.leaderRequirements!['motivation'].toString(),
+                    ),
+                ],
+              ),
+            ),
+          ],
+
+          // Disband reason — shown on disband tab
+          if (isDisbandView &&
+              team.disbandReason != null &&
+              team.disbandReason!.isNotEmpty) ...[
+            const SizedBox(height: 12),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: const Color(0xFFD7263D).withOpacity(0.04),
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(
+                  color: const Color(0xFFD7263D).withOpacity(0.2),
+                ),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Row(
+                    children: [
+                      Icon(
+                        Icons.info_outline,
+                        size: 14,
+                        color: Color(0xFFD7263D),
+                      ),
+                      SizedBox(width: 6),
+                      Text(
+                        'Reason for Disbanding',
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.bold,
+                          color: Color(0xFFD7263D),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 6),
+                  Text(
+                    team.disbandReason!,
+                    style: const TextStyle(
+                      fontSize: 12,
+                      color: Color(0xFF1A2B45),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+
           // Rejection reason
           if (team.status == 'rejected' &&
               team.rejectionReason != null &&
@@ -437,7 +703,7 @@ class _TeamCard extends StatelessWidget {
             ),
           ],
 
-          // Action buttons (pending only)
+          // Action buttons — team approval
           if (onApprove != null && onReject != null) ...[
             const SizedBox(height: 12),
             Row(
@@ -472,6 +738,42 @@ class _TeamCard extends StatelessWidget {
               ],
             ),
           ],
+
+          // Action buttons — disband approval
+          if (onApproveDisband != null && onRejectDisband != null) ...[
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton(
+                    onPressed: onRejectDisband,
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: const Color(0xFF0D47A1),
+                      side: const BorderSide(color: Color(0xFF0D47A1)),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                    ),
+                    child: const Text('Keep Team'),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: ElevatedButton(
+                    onPressed: onApproveDisband,
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFFD7263D),
+                      foregroundColor: Colors.white,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                    ),
+                    child: const Text('Disband'),
+                  ),
+                ),
+              ],
+            ),
+          ],
         ],
       ),
     );
@@ -500,6 +802,41 @@ class _InfoChip extends StatelessWidget {
           Text(
             label,
             style: const TextStyle(fontSize: 11, color: Color(0xFF546E7A)),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ReqRow extends StatelessWidget {
+  final String label;
+  final String value;
+  const _ReqRow({required this.label, required this.value});
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(top: 4),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(
+            width: 90,
+            child: Text(
+              '$label:',
+              style: const TextStyle(
+                fontSize: 11,
+                color: Color(0xFF546E7A),
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+          Expanded(
+            child: Text(
+              value,
+              style: const TextStyle(fontSize: 11, color: Color(0xFF1A2B45)),
+            ),
           ),
         ],
       ),
