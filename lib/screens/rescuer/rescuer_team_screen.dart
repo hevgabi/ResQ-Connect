@@ -3,6 +3,9 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../../models/team_model.dart';
 import '../../widgets/rescuer_bottom_nav.dart';
+import '../../screens/rescuer/rescuer_team_create_screen.dart';
+import '../../screens/rescuer/rescuer_invites_screen.dart';
+import '../../services/firestore_service.dart';
 
 class RescuerTeamScreen extends StatefulWidget {
   const RescuerTeamScreen({super.key});
@@ -18,19 +21,137 @@ class _RescuerTeamScreenState extends State<RescuerTeamScreen> {
   final _db = FirebaseFirestore.instance;
   final _currentUid = FirebaseAuth.instance.currentUser?.uid ?? '';
 
-  // ── Stream: find team where current user is a member ─────────────────────
-  Stream<TeamModel?> get _teamStream => _db
-      .collection('teams')
-      .where('member_ids', arrayContains: _currentUid)
-      .where('status', isEqualTo: 'active')
-      .limit(1)
-      .snapshots()
-      .map(
-        (snap) =>
-            snap.docs.isEmpty ? null : TeamModel.fromFirestore(snap.docs.first),
-      );
+  // Dual-path stream: user's own team_id field OR member_ids query
+  Stream<TeamModel?> get _teamStream {
+    return _db.collection('users').doc(_currentUid).snapshots().asyncMap((
+      userSnap,
+    ) async {
+      final userData = userSnap.data() as Map<String, dynamic>? ?? {};
+      final teamId = userData['team_id'] as String?;
 
-  // ── Disband ───────────────────────────────────────────────────────────────
+      // Path A: user has team_id on their own doc
+      if (teamId != null && teamId.isNotEmpty) {
+        try {
+          final teamDoc = await _db.collection('teams').doc(teamId).get();
+          if (teamDoc.exists) {
+            final t = TeamModel.fromFirestore(teamDoc);
+            if (t.status == 'active') return t;
+          }
+        } catch (_) {}
+      }
+
+      // Path B: fallback — query teams where member_ids contains this user
+      try {
+        final snap = await _db
+            .collection('teams')
+            .where('member_ids', arrayContains: _currentUid)
+            .get();
+        final activeDocs = snap.docs.where((doc) {
+          final d = doc.data() as Map<String, dynamic>;
+          return d['status'] == 'active';
+        }).toList();
+        if (activeDocs.isNotEmpty) {
+          return TeamModel.fromFirestore(activeDocs.first);
+        }
+      } catch (_) {}
+
+      return null;
+    });
+  }
+
+  // ── Leave Team (Member only) ───────────────────────────────────────────────
+  Future<void> _showLeaveDialog(TeamModel team) async {
+    final reasonCtrl = TextEditingController();
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Leave Team'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Are you sure you want to leave this team? '
+              'Please provide a reason.',
+              style: TextStyle(fontSize: 13, color: Colors.black54),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: reasonCtrl,
+              maxLines: 3,
+              decoration: const InputDecoration(
+                labelText: 'Reason *',
+                border: OutlineInputBorder(),
+                hintText: 'e.g. Personal reasons, schedule conflict...',
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: _red),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text(
+              'Leave Team',
+              style: TextStyle(color: Colors.white),
+            ),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed == true && mounted) {
+      final reason = reasonCtrl.text.trim();
+      if (reason.isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Please provide a reason for leaving.'),
+            backgroundColor: _red,
+          ),
+        );
+        return;
+      }
+      try {
+        // Remove from team member_ids
+        await _db.collection('teams').doc(team.id).update({
+          'member_ids': FieldValue.arrayRemove([_currentUid]),
+        });
+        // Clear team_id from own user doc
+        await _db.collection('users').doc(_currentUid).update({
+          'team_id': FieldValue.delete(),
+          'team_joined_at': FieldValue.delete(),
+        });
+        // Log the leave reason
+        await _db.collection('team_leave_logs').add({
+          'team_id': team.id,
+          'team_name': team.name,
+          'rescuer_id': _currentUid,
+          'reason': reason,
+          'left_at': FieldValue.serverTimestamp(),
+        });
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('You have left the team.'),
+              backgroundColor: _green,
+            ),
+          );
+        }
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Error: $e'), backgroundColor: _red),
+          );
+        }
+      }
+    }
+  }
+
+  // ── Disband (Leader only) ─────────────────────────────────────────────────
   Future<void> _showDisbandDialog(TeamModel team) async {
     final reasonCtrl = TextEditingController();
     final confirmed = await showDialog<bool>(
@@ -100,7 +221,7 @@ class _RescuerTeamScreenState extends State<RescuerTeamScreen> {
     }
   }
 
-  // ── Invite dialog ─────────────────────────────────────────────────────────
+  // ── Invite dialog (Leader only) ───────────────────────────────────────────
   Future<void> _showInviteDialog(TeamModel team) async {
     final emailCtrl = TextEditingController();
     final confirmed = await showDialog<bool>(
@@ -136,7 +257,6 @@ class _RescuerTeamScreenState extends State<RescuerTeamScreen> {
     if (confirmed == true && mounted) {
       try {
         final email = emailCtrl.text.trim();
-        // Look up user by email
         final userSnap = await _db
             .collection('users')
             .where('email', isEqualTo: email)
@@ -157,29 +277,44 @@ class _RescuerTeamScreenState extends State<RescuerTeamScreen> {
         }
 
         final inviteeDoc = userSnap.docs.first;
-        final inviteeData = inviteeDoc.data();
         final inviteeId = inviteeDoc.id;
-        final inviteeName =
-            '${inviteeData['first_name'] ?? ''} ${inviteeData['last_name'] ?? ''}'
+
+        if (inviteeId == _currentUid) {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('You cannot invite yourself.'),
+                backgroundColor: _red,
+              ),
+            );
+          }
+          return;
+        }
+
+        if (team.memberIds.contains(inviteeId)) {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('This rescuer is already a team member.'),
+                backgroundColor: _red,
+              ),
+            );
+          }
+          return;
+        }
+
+        final meData = await FirestoreService.instance.getUser(_currentUid);
+        final meName =
+            '${meData?['first_name'] ?? ''} ${meData?['last_name'] ?? ''}'
                 .trim();
 
-        // Get current user name
-        final meDoc = await _db.collection('users').doc(_currentUid).get();
-        final meData = meDoc.data() ?? {};
-        final meName =
-            '${meData['first_name'] ?? ''} ${meData['last_name'] ?? ''}'.trim();
-
-        await _db.collection('team_invites').add({
-          'team_id': team.id,
-          'team_name': team.name,
-          'invitee_id': inviteeId,
-          'invitee_name': inviteeName,
-          'invitee_email': email,
-          'inviter_id': _currentUid,
-          'inviter_name': meName,
-          'status': 'pending',
-          'created_at': FieldValue.serverTimestamp(),
-        });
+        await FirestoreService.instance.sendTeamInvite(
+          teamId: team.id,
+          teamName: team.name,
+          inviterId: _currentUid,
+          inviterName: meName.isNotEmpty ? meName : 'Leader',
+          inviteeId: inviteeId,
+        );
 
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
@@ -199,72 +334,85 @@ class _RescuerTeamScreenState extends State<RescuerTeamScreen> {
     }
   }
 
-  // ── 3-dot menu ────────────────────────────────────────────────────────────
-  void _showTeamMenu(BuildContext context, TeamModel team) {
-    final isLeader = team.leaderId == _currentUid;
-    showModalBottomSheet(
-      context: context,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
-      ),
-      builder: (ctx) => SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            _sheetHandle(),
-            ListTile(
-              leading: const Icon(Icons.group, color: _green),
-              title: const Text('Members'),
-              onTap: () {
-                Navigator.pop(ctx);
-                _showMembersSheet(team);
-              },
-            ),
-            ListTile(
-              leading: const Icon(Icons.monitor_heart_outlined, color: _green),
-              title: const Text('Team Status'),
-              onTap: () {
-                Navigator.pop(ctx);
-                _showTeamStatusSheet(team);
-              },
-            ),
-            ListTile(
-              leading: const Icon(Icons.assignment, color: _green),
-              title: const Text('Mission List'),
-              onTap: () {
-                Navigator.pop(ctx);
-                _showMissionsSheet(team);
-              },
-            ),
-            ListTile(
-              leading: const Icon(Icons.person_add, color: _green),
-              title: const Text('Invites'),
-              onTap: () {
-                Navigator.pop(ctx);
-                _showInvitesSheet(team);
-              },
-            ),
-            if (isLeader) ...[
-              const Divider(),
-              ListTile(
-                leading: const Icon(Icons.group_remove, color: _red),
-                title: const Text(
-                  'Disband Team',
-                  style: TextStyle(color: _red),
-                ),
-                onTap: () {
-                  Navigator.pop(ctx);
-                  _showDisbandDialog(team);
-                },
-              ),
-            ],
-          ],
-        ),
-      ),
-    );
+  // ── Approve mission request (Leader only) ────────────────────────────────
+  Future<void> _approveMissionRequest(
+    String requestId,
+    String missionId,
+  ) async {
+    try {
+      await _db.collection('mission_requests').doc(requestId).update({
+        'status': 'approved',
+        'approved_by': _currentUid,
+        'approved_at': FieldValue.serverTimestamp(),
+      });
+      // Update the actual mission status to active
+      await _db.collection('missions').doc(missionId).update({
+        'status': 'en_route',
+        'approved_at': FieldValue.serverTimestamp(),
+      });
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Mission approved!'),
+            backgroundColor: _green,
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error: $e'), backgroundColor: _red),
+        );
+      }
+    }
   }
 
-  // ── Members sheet ─────────────────────────────────────────────────────────
+  Future<void> _rejectMissionRequest(String requestId) async {
+    try {
+      await _db.collection('mission_requests').doc(requestId).update({
+        'status': 'rejected',
+        'rejected_by': _currentUid,
+        'rejected_at': FieldValue.serverTimestamp(),
+      });
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Mission request rejected.')),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error: $e'), backgroundColor: _red),
+        );
+      }
+    }
+  }
+
+  // ── Sheet helpers ─────────────────────────────────────────────────────────
+  Widget _sheetHandle() => Container(
+    width: 40,
+    height: 4,
+    margin: const EdgeInsets.symmetric(vertical: 10),
+    decoration: BoxDecoration(
+      color: Colors.grey[300],
+      borderRadius: BorderRadius.circular(2),
+    ),
+  );
+
+  Widget _sheetTitle(IconData icon, String title) => Padding(
+    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+    child: Row(
+      children: [
+        Icon(icon, color: _green),
+        const SizedBox(width: 8),
+        Text(
+          title,
+          style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+        ),
+      ],
+    ),
+  );
+
   void _showMembersSheet(TeamModel team) {
     showModalBottomSheet(
       context: context,
@@ -297,52 +445,6 @@ class _RescuerTeamScreenState extends State<RescuerTeamScreen> {
     );
   }
 
-  // ── Team Status sheet ─────────────────────────────────────────────────────
-  void _showTeamStatusSheet(TeamModel team) {
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
-      ),
-      builder: (ctx) => DraggableScrollableSheet(
-        expand: false,
-        initialChildSize: 0.6,
-        maxChildSize: 0.9,
-        builder: (_, controller) => Column(
-          children: [
-            _sheetHandle(),
-            _sheetTitle(Icons.monitor_heart_outlined, 'Team Status'),
-            const Padding(
-              padding: EdgeInsets.symmetric(horizontal: 16),
-              child: Text(
-                'Live mission awareness for your team',
-                style: TextStyle(fontSize: 12, color: Colors.black54),
-              ),
-            ),
-            const SizedBox(height: 4),
-            const Divider(),
-            Expanded(
-              child: ListView.builder(
-                controller: controller,
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 16,
-                  vertical: 8,
-                ),
-                itemCount: team.memberIds.length,
-                itemBuilder: (_, i) => _MemberStatusTile(
-                  uid: team.memberIds[i],
-                  isLeader: team.memberIds[i] == team.leaderId,
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  // ── Missions sheet ────────────────────────────────────────────────────────
   void _showMissionsSheet(TeamModel team) {
     showModalBottomSheet(
       context: context,
@@ -371,7 +473,6 @@ class _RescuerTeamScreenState extends State<RescuerTeamScreen> {
     );
   }
 
-  // ── Invites sheet ─────────────────────────────────────────────────────────
   void _showInvitesSheet(TeamModel team) {
     showModalBottomSheet(
       context: context,
@@ -423,30 +524,72 @@ class _RescuerTeamScreenState extends State<RescuerTeamScreen> {
     );
   }
 
-  // ── Helpers ───────────────────────────────────────────────────────────────
-  Widget _sheetHandle() => Container(
-    width: 40,
-    height: 4,
-    margin: const EdgeInsets.symmetric(vertical: 10),
-    decoration: BoxDecoration(
-      color: Colors.grey[300],
-      borderRadius: BorderRadius.circular(2),
-    ),
-  );
-
-  Widget _sheetTitle(IconData icon, String title) => Padding(
-    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-    child: Row(
-      children: [
-        Icon(icon, color: _green),
-        const SizedBox(width: 8),
-        Text(
-          title,
-          style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+  // ── 3-dot menu ────────────────────────────────────────────────────────────
+  void _showTeamMenu(BuildContext context, TeamModel team) {
+    final isLeader = team.leaderId == _currentUid;
+    showModalBottomSheet(
+      context: context,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            _sheetHandle(),
+            ListTile(
+              leading: const Icon(Icons.group, color: _green),
+              title: const Text('Members'),
+              onTap: () {
+                Navigator.pop(ctx);
+                _showMembersSheet(team);
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.assignment, color: _green),
+              title: const Text('Mission List'),
+              onTap: () {
+                Navigator.pop(ctx);
+                _showMissionsSheet(team);
+              },
+            ),
+            if (isLeader) ...[
+              ListTile(
+                leading: const Icon(Icons.person_add, color: _green),
+                title: const Text('Invites'),
+                onTap: () {
+                  Navigator.pop(ctx);
+                  _showInvitesSheet(team);
+                },
+              ),
+              const Divider(),
+              ListTile(
+                leading: const Icon(Icons.group_remove, color: _red),
+                title: const Text(
+                  'Disband Team',
+                  style: TextStyle(color: _red),
+                ),
+                onTap: () {
+                  Navigator.pop(ctx);
+                  _showDisbandDialog(team);
+                },
+              ),
+            ] else ...[
+              const Divider(),
+              ListTile(
+                leading: const Icon(Icons.exit_to_app, color: _red),
+                title: const Text('Leave Team', style: TextStyle(color: _red)),
+                onTap: () {
+                  Navigator.pop(ctx);
+                  _showLeaveDialog(team);
+                },
+              ),
+            ],
+          ],
         ),
-      ],
-    ),
-  );
+      ),
+    );
+  }
 
   // ── Build ─────────────────────────────────────────────────────────────────
   @override
@@ -461,7 +604,7 @@ class _RescuerTeamScreenState extends State<RescuerTeamScreen> {
         }
 
         final team = snap.data;
-        if (team == null) return _NoTeamView();
+        if (team == null) return _NoTeamView(currentUid: _currentUid);
 
         final isLeader = team.leaderId == _currentUid;
 
@@ -480,10 +623,11 @@ class _RescuerTeamScreenState extends State<RescuerTeamScreen> {
               ),
             ),
             actions: [
-              IconButton(
-                icon: const Icon(Icons.mail_outline, color: Colors.white),
-                onPressed: () => _showInvitesSheet(team),
-              ),
+              if (isLeader)
+                IconButton(
+                  icon: const Icon(Icons.mail_outline, color: Colors.white),
+                  onPressed: () => _showInvitesSheet(team),
+                ),
               IconButton(
                 icon: const Icon(Icons.more_vert, color: Colors.white),
                 onPressed: () => _showTeamMenu(context, team),
@@ -501,19 +645,22 @@ class _RescuerTeamScreenState extends State<RescuerTeamScreen> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        // Status banner
-                        _StatusBanner(status: team.status),
+                        _StatusBanner(status: team.status, isLeader: isLeader),
                         const SizedBox(height: 12),
-
-                        // Team info
                         _TeamInfoCard(team: team),
                         const SizedBox(height: 12),
-
-                        // Compact stats row (chips, not big cards)
                         _TeamStatChips(team: team),
-                        const SizedBox(height: 20),
+                        const SizedBox(height: 16),
 
-                        // Active missions header
+                        // ── Leader-only: Pending mission requests ──────────
+                        if (isLeader)
+                          _PendingMissionRequests(
+                            teamId: team.id,
+                            memberIds: team.memberIds,
+                            onApprove: _approveMissionRequest,
+                            onReject: _rejectMissionRequest,
+                          ),
+
                         const Text(
                           'Active Missions',
                           style: TextStyle(
@@ -527,10 +674,7 @@ class _RescuerTeamScreenState extends State<RescuerTeamScreen> {
                     ),
                   ),
                 ),
-
-                // Mission queue list (no card wrapper)
                 _ActiveMissionSliver(memberIds: team.memberIds),
-
                 const SliverToBoxAdapter(child: SizedBox(height: 90)),
               ],
             ),
@@ -539,30 +683,15 @@ class _RescuerTeamScreenState extends State<RescuerTeamScreen> {
       },
     );
   }
-
-  Widget _card({required Widget child}) => Container(
-    decoration: BoxDecoration(
-      color: Colors.white,
-      borderRadius: BorderRadius.circular(12),
-      boxShadow: [
-        BoxShadow(
-          color: Colors.black.withOpacity(0.04),
-          blurRadius: 6,
-          offset: const Offset(0, 2),
-        ),
-      ],
-    ),
-    padding: const EdgeInsets.all(16),
-    child: child,
-  );
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// STATUS BANNER
+// STATUS BANNER — shows Leader / Member role
 // ─────────────────────────────────────────────────────────────────────────────
 class _StatusBanner extends StatelessWidget {
-  const _StatusBanner({required this.status});
+  const _StatusBanner({required this.status, required this.isLeader});
   final String status;
+  final bool isLeader;
 
   @override
   Widget build(BuildContext context) {
@@ -586,7 +715,21 @@ class _StatusBanner extends StatelessWidget {
             style: TextStyle(fontWeight: FontWeight.w600, color: color),
           ),
           const Spacer(),
-          Text('Leader', style: TextStyle(fontSize: 12, color: color)),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+            decoration: BoxDecoration(
+              color: color.withOpacity(0.12),
+              borderRadius: BorderRadius.circular(6),
+            ),
+            child: Text(
+              isLeader ? 'Leader' : 'Member',
+              style: TextStyle(
+                fontSize: 12,
+                color: color,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
         ],
       ),
     );
@@ -664,7 +807,7 @@ class _TeamInfoCard extends StatelessWidget {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// TEAM STAT CHIPS (compact inline row)
+// TEAM STAT CHIPS
 // ─────────────────────────────────────────────────────────────────────────────
 class _TeamStatChips extends StatelessWidget {
   const _TeamStatChips({required this.team});
@@ -673,7 +816,6 @@ class _TeamStatChips extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final ids = team.memberIds.isEmpty ? ['__none__'] : team.memberIds;
-
     return StreamBuilder<QuerySnapshot>(
       stream: FirebaseFirestore.instance
           .collection('missions')
@@ -682,7 +824,6 @@ class _TeamStatChips extends StatelessWidget {
           .snapshots(),
       builder: (context, mSnap) {
         final activeMissions = mSnap.data?.docs.length ?? 0;
-
         return Row(
           children: [
             _Chip(
@@ -747,7 +888,183 @@ class _Chip extends StatelessWidget {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// ACTIVE MISSIONS SLIVER (queue-style, no card wrapper)
+// PENDING MISSION REQUESTS — Leader only
+// Shows missions requested by members that need leader approval
+// ─────────────────────────────────────────────────────────────────────────────
+class _PendingMissionRequests extends StatelessWidget {
+  const _PendingMissionRequests({
+    required this.teamId,
+    required this.memberIds,
+    required this.onApprove,
+    required this.onReject,
+  });
+  final String teamId;
+  final List<String> memberIds;
+  final Function(String requestId, String missionId) onApprove;
+  final Function(String requestId) onReject;
+
+  @override
+  Widget build(BuildContext context) {
+    return StreamBuilder<QuerySnapshot>(
+      stream: FirebaseFirestore.instance
+          .collection('mission_requests')
+          .where('team_id', isEqualTo: teamId)
+          .where('status', isEqualTo: 'pending')
+          .snapshots(),
+      builder: (context, snap) {
+        final docs = snap.data?.docs ?? [];
+        if (docs.isEmpty) return const SizedBox.shrink();
+
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                const Text(
+                  'Pending Approvals',
+                  style: TextStyle(
+                    fontSize: 15,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.black87,
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 2,
+                  ),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFE65100),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: Text(
+                    '${docs.length}',
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 11,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            ...docs.map((doc) {
+              final data = doc.data() as Map<String, dynamic>;
+              final missionId = data['mission_id'] as String? ?? '';
+              final requesterName =
+                  data['requester_name'] as String? ?? 'A member';
+              final sosDesc =
+                  data['sos_description'] as String? ?? 'No description';
+              return Container(
+                margin: const EdgeInsets.only(bottom: 10),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(
+                    color: const Color(0xFFE65100).withOpacity(0.3),
+                  ),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withOpacity(0.04),
+                      blurRadius: 4,
+                      offset: const Offset(0, 2),
+                    ),
+                  ],
+                ),
+                padding: const EdgeInsets.all(14),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 8,
+                            vertical: 3,
+                          ),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFFFF3E0),
+                            borderRadius: BorderRadius.circular(6),
+                          ),
+                          child: const Text(
+                            'Awaiting Your Approval',
+                            style: TextStyle(
+                              fontSize: 11,
+                              color: Color(0xFFE65100),
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      '$requesterName wants to accept a mission',
+                      style: const TextStyle(
+                        fontWeight: FontWeight.w600,
+                        fontSize: 13,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      sosDesc,
+                      style: const TextStyle(
+                        fontSize: 12,
+                        color: Colors.black54,
+                      ),
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    const SizedBox(height: 12),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: OutlinedButton(
+                            onPressed: () => onReject(doc.id),
+                            style: OutlinedButton.styleFrom(
+                              foregroundColor: const Color(0xFFD32F2F),
+                              side: const BorderSide(color: Color(0xFFD32F2F)),
+                              padding: const EdgeInsets.symmetric(vertical: 8),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                            ),
+                            child: const Text('Reject'),
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: ElevatedButton(
+                            onPressed: () => onApprove(doc.id, missionId),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: const Color(0xFF2E7D32),
+                              foregroundColor: Colors.white,
+                              padding: const EdgeInsets.symmetric(vertical: 8),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                            ),
+                            child: const Text('Approve'),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              );
+            }),
+            const SizedBox(height: 8),
+          ],
+        );
+      },
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ACTIVE MISSIONS SLIVER
 // ─────────────────────────────────────────────────────────────────────────────
 class _ActiveMissionSliver extends StatelessWidget {
   const _ActiveMissionSliver({required this.memberIds});
@@ -767,7 +1084,6 @@ class _ActiveMissionSliver extends StatelessWidget {
       );
     }
     final ids = memberIds.isEmpty ? ['__none__'] : memberIds;
-
     return StreamBuilder<QuerySnapshot>(
       stream: FirebaseFirestore.instance
           .collection('missions')
@@ -783,9 +1099,7 @@ class _ActiveMissionSliver extends StatelessWidget {
             ),
           );
         }
-
         final docs = snap.data?.docs ?? [];
-
         if (docs.isEmpty) {
           return const SliverToBoxAdapter(
             child: Padding(
@@ -797,7 +1111,6 @@ class _ActiveMissionSliver extends StatelessWidget {
             ),
           );
         }
-
         return SliverList(
           delegate: SliverChildBuilderDelegate((context, i) {
             final doc = docs[i];
@@ -811,7 +1124,6 @@ class _ActiveMissionSliver extends StatelessWidget {
                 ? const Color(0xFFFFF3E0)
                 : const Color(0xFFE3F2FD);
             final notes = data['notes'] as String? ?? 'No additional notes';
-
             return Container(
               margin: const EdgeInsets.fromLTRB(16, 0, 16, 10),
               decoration: BoxDecoration(
@@ -830,7 +1142,6 @@ class _ActiveMissionSliver extends StatelessWidget {
                 child: Row(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    // Status icon
                     Container(
                       padding: const EdgeInsets.all(10),
                       decoration: BoxDecoration(
@@ -844,7 +1155,6 @@ class _ActiveMissionSliver extends StatelessWidget {
                       ),
                     ),
                     const SizedBox(width: 12),
-                    // Mission info
                     Expanded(
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
@@ -889,7 +1199,6 @@ class _ActiveMissionSliver extends StatelessWidget {
                             maxLines: 2,
                             overflow: TextOverflow.ellipsis,
                           ),
-                          // Rescuer name
                           _MissionRescuerRow(
                             rescuerId: data['rescuer_id'] as String? ?? '',
                           ),
@@ -970,7 +1279,6 @@ class _MemberStatusTile extends StatelessWidget {
             ),
           );
         }
-
         final data = snap.data!.data() as Map<String, dynamic>? ?? {};
         final name = '${data['first_name'] ?? ''} ${data['last_name'] ?? ''}'
             .trim();
@@ -986,7 +1294,6 @@ class _MemberStatusTile extends StatelessWidget {
         Color statusColor;
         String statusLabel;
         IconData statusIcon;
-
         switch (availStatus) {
           case 'available':
             statusColor = const Color(0xFF2E7D32);
@@ -1010,7 +1317,7 @@ class _MemberStatusTile extends StatelessWidget {
         }
 
         return Padding(
-          padding: const EdgeInsets.symmetric(vertical: 5),
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 5),
           child: Row(
             children: [
               CircleAvatar(
@@ -1087,7 +1394,7 @@ class _MemberStatusTile extends StatelessWidget {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// TEAM MISSIONS LIST (full, inside bottom sheet)
+// TEAM MISSIONS LIST
 // ─────────────────────────────────────────────────────────────────────────────
 class _TeamMissionsList extends StatelessWidget {
   const _TeamMissionsList({
@@ -1105,20 +1412,25 @@ class _TeamMissionsList extends StatelessWidget {
       );
     }
     final ids = memberIds.isEmpty ? ['__none__'] : memberIds;
-
     return StreamBuilder<QuerySnapshot>(
       stream: FirebaseFirestore.instance
           .collection('missions')
           .where('rescuer_id', whereIn: ids)
-          .orderBy('created_at', descending: true)
-          .limit(20)
           .snapshots(),
       builder: (context, snap) {
         if (snap.connectionState == ConnectionState.waiting) {
           return const Center(child: CircularProgressIndicator());
         }
         final docs = snap.data?.docs ?? [];
-        if (docs.isEmpty) {
+        // Sort newest first in Dart
+        final sorted = List.from(docs)
+          ..sort((a, b) {
+            final aT = (a.data() as Map)['created_at'] as Timestamp?;
+            final bT = (b.data() as Map)['created_at'] as Timestamp?;
+            if (aT == null || bT == null) return 0;
+            return bT.compareTo(aT);
+          });
+        if (sorted.isEmpty) {
           return const Center(
             child: Padding(
               padding: EdgeInsets.all(24),
@@ -1132,10 +1444,10 @@ class _TeamMissionsList extends StatelessWidget {
         return ListView.separated(
           controller: scrollController,
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-          itemCount: docs.length,
+          itemCount: sorted.length,
           separatorBuilder: (_, __) => const Divider(height: 1),
           itemBuilder: (_, i) {
-            final data = docs[i].data() as Map<String, dynamic>;
+            final data = sorted[i].data() as Map<String, dynamic>;
             final status = data['status'] as String? ?? '';
             Color statusColor;
             String statusLabel;
@@ -1168,7 +1480,7 @@ class _TeamMissionsList extends StatelessWidget {
                 child: Icon(statusIcon, color: statusColor, size: 18),
               ),
               title: Text(
-                'Mission ${docs[i].id.substring(0, 6).toUpperCase()}',
+                'Mission ${sorted[i].id.substring(0, 6).toUpperCase()}',
                 style: const TextStyle(
                   fontSize: 14,
                   fontWeight: FontWeight.w600,
@@ -1203,56 +1515,7 @@ class _TeamMissionsList extends StatelessWidget {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// PENDING INVITES PREVIEW
-// ─────────────────────────────────────────────────────────────────────────────
-class _PendingInvitesPreview extends StatelessWidget {
-  const _PendingInvitesPreview({required this.teamId});
-  final String teamId;
-
-  @override
-  Widget build(BuildContext context) {
-    return StreamBuilder<QuerySnapshot>(
-      stream: FirebaseFirestore.instance
-          .collection('team_invites')
-          .where('team_id', isEqualTo: teamId)
-          .where('status', isEqualTo: 'pending')
-          .snapshots(),
-      builder: (context, snap) {
-        final count = snap.data?.docs.length ?? 0;
-        if (count == 0) {
-          return const Padding(
-            padding: EdgeInsets.only(top: 8),
-            child: Text(
-              'No pending invites',
-              style: TextStyle(color: Colors.black45, fontSize: 13),
-            ),
-          );
-        }
-        return Padding(
-          padding: const EdgeInsets.only(top: 8),
-          child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-            decoration: BoxDecoration(
-              color: const Color(0xFFE8F5E9),
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: Text(
-              '$count pending invite${count == 1 ? '' : 's'}',
-              style: const TextStyle(
-                color: Color(0xFF2E7D32),
-                fontSize: 13,
-                fontWeight: FontWeight.w500,
-              ),
-            ),
-          ),
-        );
-      },
-    );
-  }
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// TEAM INVITES LIST (full, inside bottom sheet)
+// TEAM INVITES LIST
 // ─────────────────────────────────────────────────────────────────────────────
 class _TeamInvitesList extends StatelessWidget {
   const _TeamInvitesList({
@@ -1268,7 +1531,6 @@ class _TeamInvitesList extends StatelessWidget {
       stream: FirebaseFirestore.instance
           .collection('team_invites')
           .where('team_id', isEqualTo: teamId)
-          .orderBy('created_at', descending: true)
           .snapshots(),
       builder: (context, snap) {
         if (snap.connectionState == ConnectionState.waiting) {
@@ -1355,16 +1617,37 @@ class _TeamInvitesList extends StatelessWidget {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// NO TEAM VIEW
+// NO TEAM VIEW — with Create + View Invites buttons
 // ─────────────────────────────────────────────────────────────────────────────
-class _NoTeamView extends StatelessWidget {
+class _NoTeamView extends StatefulWidget {
+  final String currentUid;
+  const _NoTeamView({required this.currentUid});
+
+  @override
+  State<_NoTeamView> createState() => _NoTeamViewState();
+}
+
+class _NoTeamViewState extends State<_NoTeamView> {
+  static const _green = Color(0xFF2E7D32);
+  int _pendingInvites = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    FirestoreService.instance
+        .rescuerPendingInvitesStream(widget.currentUid)
+        .listen((invites) {
+          if (mounted) setState(() => _pendingInvites = invites.length);
+        });
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: const Color(0xFFF5F7FA),
       bottomNavigationBar: const RescuerBottomNav(currentIndex: 2),
       appBar: AppBar(
-        backgroundColor: const Color(0xFF2E7D32),
+        backgroundColor: _green,
         title: const Text(
           'My Team',
           style: TextStyle(
@@ -1380,22 +1663,112 @@ class _NoTeamView extends StatelessWidget {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Icon(Icons.groups_outlined, size: 64, color: Colors.grey[400]),
+              Icon(Icons.groups_outlined, size: 72, color: Colors.grey[400]),
               const SizedBox(height: 16),
               const Text(
                 'No Team Yet',
                 style: TextStyle(
-                  fontSize: 18,
+                  fontSize: 20,
                   fontWeight: FontWeight.bold,
                   color: Colors.black54,
                 ),
               ),
               const SizedBox(height: 8),
               const Text(
-                'You are not part of any team. '
-                'Wait for an invite or create a new team.',
+                'You are not part of any team.\nCreate your own or wait for an invite.',
                 textAlign: TextAlign.center,
                 style: TextStyle(color: Colors.black45, fontSize: 13),
+              ),
+              const SizedBox(height: 32),
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton.icon(
+                  onPressed: () => Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => RescuerTeamCreateScreen(
+                        currentUserId: widget.currentUid,
+                      ),
+                    ),
+                  ),
+                  icon: const Icon(Icons.add, color: Colors.white),
+                  label: const Text(
+                    'Create a Team',
+                    style: TextStyle(
+                      fontWeight: FontWeight.bold,
+                      fontSize: 15,
+                      color: Colors.white,
+                    ),
+                  ),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: _green,
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 12),
+              SizedBox(
+                width: double.infinity,
+                child: OutlinedButton.icon(
+                  onPressed: () => Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) =>
+                          RescuerInvitesScreen(rescuerId: widget.currentUid),
+                    ),
+                  ),
+                  icon: Stack(
+                    clipBehavior: Clip.none,
+                    children: [
+                      const Icon(Icons.mail_outline),
+                      if (_pendingInvites > 0)
+                        Positioned(
+                          right: -6,
+                          top: -4,
+                          child: Container(
+                            padding: const EdgeInsets.all(3),
+                            decoration: const BoxDecoration(
+                              color: Color(0xFFD7263D),
+                              shape: BoxShape.circle,
+                            ),
+                            constraints: const BoxConstraints(
+                              minWidth: 15,
+                              minHeight: 15,
+                            ),
+                            child: Text(
+                              _pendingInvites > 9 ? '9+' : '$_pendingInvites',
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 8,
+                                fontWeight: FontWeight.bold,
+                              ),
+                              textAlign: TextAlign.center,
+                            ),
+                          ),
+                        ),
+                    ],
+                  ),
+                  label: Text(
+                    _pendingInvites > 0
+                        ? 'View Invites ($_pendingInvites pending)'
+                        : 'View Invites',
+                    style: const TextStyle(
+                      fontWeight: FontWeight.bold,
+                      fontSize: 15,
+                    ),
+                  ),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: _green,
+                    side: const BorderSide(color: _green),
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                  ),
+                ),
               ),
             ],
           ),

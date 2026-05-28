@@ -962,59 +962,78 @@ class FirestoreService {
   }
 
   /// Stream of a rescuer's team (null if not in any active team).
+  /// Single where clause only to avoid composite index requirement.
   Stream<TeamModel?> rescuerTeamStream(String rescuerId) {
     return _teams
         .where('member_ids', arrayContains: rescuerId)
-        .where('status', isEqualTo: 'active')
-        .limit(1)
         .snapshots()
         .map((snap) {
-          if (snap.docs.isEmpty) return null;
-          return TeamModel.fromFirestore(snap.docs.first);
+          final active = snap.docs.where((doc) {
+            final d = doc.data() as Map<String, dynamic>;
+            return d['status'] == 'active';
+          }).toList();
+          if (active.isEmpty) return null;
+          return TeamModel.fromFirestore(active.first);
         });
   }
 
   /// Stream of a rescuer's pending team (submitted but not yet approved).
+  /// Single where clause only to avoid composite index requirement.
   Stream<TeamModel?> rescuerPendingTeamStream(String rescuerId) {
     return _teams
         .where('member_ids', arrayContains: rescuerId)
-        .where('status', isEqualTo: 'pending')
-        .limit(1)
         .snapshots()
         .map((snap) {
-          if (snap.docs.isEmpty) return null;
-          return TeamModel.fromFirestore(snap.docs.first);
+          final pending = snap.docs.where((doc) {
+            final d = doc.data() as Map<String, dynamic>;
+            return d['status'] == 'pending';
+          }).toList();
+          if (pending.isEmpty) return null;
+          return TeamModel.fromFirestore(pending.first);
         });
   }
 
   /// Stream of pending invites for an invitee.
+  /// No orderBy — avoids composite index requirement. Sorted in Dart instead.
   Stream<List<TeamInviteModel>> rescuerPendingInvitesStream(String rescuerId) {
     return _teamInvites
         .where('invitee_id', isEqualTo: rescuerId)
         .where('status', isEqualTo: 'pending')
-        .orderBy('created_at', descending: true)
         .snapshots()
-        .map(
-          (snap) => snap.docs
+        .map((snap) {
+          final list = snap.docs
               .map((doc) => TeamInviteModel.fromFirestore(doc))
-              .toList(),
-        );
+              .toList();
+          list.sort((a, b) {
+            final aTime = a.createdAt ?? DateTime(2000);
+            final bTime = b.createdAt ?? DateTime(2000);
+            return bTime.compareTo(aTime);
+          });
+          return list;
+        });
   }
 
   /// Stream of all invites for a specific team.
+  /// No orderBy — avoids composite index requirement. Sorted in Dart instead.
   Stream<List<TeamInviteModel>> teamInvitesStream(String teamId) {
     return _teamInvites
         .where('team_id', isEqualTo: teamId)
-        .orderBy('created_at', descending: true)
         .snapshots()
-        .map(
-          (snap) => snap.docs
+        .map((snap) {
+          final list = snap.docs
               .map((doc) => TeamInviteModel.fromFirestore(doc))
-              .toList(),
-        );
+              .toList();
+          list.sort((a, b) {
+            final aTime = a.createdAt ?? DateTime(2000);
+            final bTime = b.createdAt ?? DateTime(2000);
+            return bTime.compareTo(aTime);
+          });
+          return list;
+        });
   }
 
   /// Creates a new team (status: pending) and returns the team ID.
+  /// Also stores team_id on the leader's own user doc for reliable stream lookup.
   Future<String> createTeam({
     required String name,
     required String description,
@@ -1031,6 +1050,11 @@ class FirestoreService {
       if (leaderRequirements != null && leaderRequirements.isNotEmpty)
         'leader_requirements': leaderRequirements,
     });
+    // Store team_id on the leader's own user doc — used by _teamStream
+    await _users.doc(leaderId).set({
+      'team_id': ref.id,
+      'team_joined_at': FieldValue.serverTimestamp(),
+    }, SetOptions(merge: true));
     return ref.id;
   }
 
@@ -1063,15 +1087,34 @@ class FirestoreService {
   }
 
   /// Accepts an invite: adds rescuer to team member_ids, marks invite accepted.
+  /// Also stores team_id on the user's own document as a fallback for
+  /// Firestore rules that may block direct team document updates.
   Future<void> acceptTeamInvite(
     String inviteId,
     String teamId,
     String rescuerId,
   ) async {
+    // 1. Mark the invite as accepted (rescuer owns their invite record)
     await _teamInvites.doc(inviteId).update({'status': 'accepted'});
-    await _teams.doc(teamId).update({
-      'member_ids': FieldValue.arrayUnion([rescuerId]),
-    });
+
+    // 2. Store team_id on the rescuer's own user doc (rescuer can always
+    //    write to their own user document, no rules issue)
+    await _users.doc(rescuerId).set({
+      'team_id': teamId,
+      'team_joined_at': FieldValue.serverTimestamp(),
+    }, SetOptions(merge: true));
+
+    // 3. Also try to update team member_ids — may fail if rules block it,
+    //    but the team screen stream will still find the team via team_id above.
+    try {
+      await _teams.doc(teamId).update({
+        'member_ids': FieldValue.arrayUnion([rescuerId]),
+      });
+    } catch (e) {
+      debugPrint('acceptTeamInvite: could not update team member_ids: $e');
+      // Not fatal — the leader's side will see the accepted invite and
+      // can manually add the member, or security rules need updating.
+    }
   }
 
   /// Declines an invite.

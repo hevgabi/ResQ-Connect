@@ -5,8 +5,8 @@ import 'package:google_sign_in/google_sign_in.dart';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 
-import '../../providers/auth_provider.dart';
-import '../../main.dart' show RootRouter;
+import '../../providers/auth_provider.dart' as auth;
+import '../../main.dart' as _main;
 import 'forgot_password_screen.dart';
 import 'google_complete_profile_screen.dart';
 
@@ -120,45 +120,65 @@ class _LoginScreenState extends State<LoginScreen>
     FocusScope.of(context).unfocus();
 
     setState(() => _isEmailLoading = true);
+
+    // FIX: suppress the authStateChanges listener BEFORE signing in so it
+    // doesn't race with our own Firestore read below — concurrent reads on
+    // the same users/{uid} doc while security rules call getUserData() on
+    // that same doc causes FIRESTORE INTERNAL ASSERTION FAILED on web.
+    final authProvider = context.read<auth.AuthProvider>();
+    authProvider.suppressNextAuthEvent();
+
     try {
       final credential = await FirebaseAuth.instance.signInWithEmailAndPassword(
         email: _emailController.text.trim(),
         password: _passwordController.text,
       );
 
-      // Check Firestore: has this user completed OTP email verification?
       final uid = credential.user?.uid;
-      if (uid != null) {
-        final doc = await FirebaseFirestore.instance
-            .collection('users')
-            .doc(uid)
-            .get();
-
-        final isEmailVerified =
-            (doc.data()?['is_email_verified'] as bool?) ?? false;
-
-        if (!isEmailVerified) {
-          // Sign them back out — account not yet OTP-verified
-          await FirebaseAuth.instance.signOut();
-          if (mounted) {
-            _showSnackBar(
-              'Your email is not verified yet. Please check your inbox for the OTP.',
-            );
-          }
-          return;
-        }
+      if (uid == null) {
+        authProvider.suppressNextAuthEvent(); // keep suppressed
+        _showSnackBar('Sign-in failed. Please try again.');
+        return;
       }
 
-      // Email verified — let RootRouter route to the correct home screen.
+      // Single Firestore read — listener is suppressed so no concurrent read.
+      final doc = await FirebaseFirestore.instance
+          .collection('users')
+          .doc(uid)
+          .get();
+
+      final isEmailVerified =
+          (doc.data()?['is_email_verified'] as bool?) ?? false;
+
+      if (!isEmailVerified) {
+        await FirebaseAuth.instance.signOut();
+        // signOut fires authStateChanges(null) — safe to resume now
+        authProvider.suppressNextAuthEvent();
+        if (mounted) {
+          _showSnackBar(
+            'Your email is not verified yet. Please check your inbox for the OTP.',
+          );
+        }
+        return;
+      }
+
+      // All good — resume listener then navigate to RootRouter.
+      // resumeAndFetchRole() will do the role fetch cleanly (no concurrent read).
+      await authProvider.resumeAndFetchRole();
+
       if (mounted) {
         Navigator.of(context).pushAndRemoveUntil(
-          MaterialPageRoute(builder: (_) => const RootRouter()),
+          MaterialPageRoute(builder: (_) => const _main.RootRouter()),
           (route) => false,
         );
       }
     } on FirebaseAuthException catch (e) {
+      // Auth failed — resume listener (user is still signed out)
+      authProvider.suppressNextAuthEvent();
       _showSnackBar(_friendlyError(e));
-    } catch (_) {
+    } catch (e, stack) {
+      debugPrint('Login unexpected error: $e\n$stack');
+      authProvider.suppressNextAuthEvent();
       _showSnackBar('An unexpected error occurred. Please try again.');
     } finally {
       if (mounted) setState(() => _isEmailLoading = false);
@@ -180,11 +200,17 @@ class _LoginScreenState extends State<LoginScreen>
         accessToken: googleAuth.accessToken,
         idToken: googleAuth.idToken,
       );
+
+      // Suppress listener before Google sign-in too
+      final authProvider = context.read<auth.AuthProvider>();
+      authProvider.suppressNextAuthEvent();
+
       final result = await FirebaseAuth.instance.signInWithCredential(
         credential,
       );
       final firebaseUser = result.user;
       if (firebaseUser == null) {
+        authProvider.suppressNextAuthEvent();
         _showSnackBar('Google sign-in failed. Please try again.');
         return;
       }
@@ -193,7 +219,6 @@ class _LoginScreenState extends State<LoginScreen>
 
       if (isNewUser) {
         // Brand new Google user — go to profile completion immediately
-        // before AuthProvider's _RoleResolvingScreen kicks in
         if (mounted) {
           Navigator.of(context).pushAndRemoveUntil(
             MaterialPageRoute(
@@ -206,7 +231,7 @@ class _LoginScreenState extends State<LoginScreen>
         return;
       }
 
-      // Existing user — check Firestore for approval status
+      // Existing user — single Firestore read (listener suppressed)
       final doc = await FirebaseFirestore.instance
           .collection('users')
           .doc(firebaseUser.uid)
@@ -219,7 +244,6 @@ class _LoginScreenState extends State<LoginScreen>
       if (!mounted) return;
 
       if (!doc.exists) {
-        // Auth account exists but no Firestore doc — treat as new user
         Navigator.of(context).pushAndRemoveUntil(
           MaterialPageRoute(
             builder: (_) =>
@@ -229,11 +253,12 @@ class _LoginScreenState extends State<LoginScreen>
         );
         return;
       }
+
       final approvalStatus = doc.data()?['approval_status'] as String? ?? '';
 
       if (approvalStatus == 'pending') {
-        // Still waiting for admin — sign out and show pending message
         await FirebaseAuth.instance.signOut();
+        authProvider.suppressNextAuthEvent();
         if (mounted) {
           _showSnackBar(
             'Your account is still under admin review. Please wait 1–3 business days.',
@@ -245,6 +270,7 @@ class _LoginScreenState extends State<LoginScreen>
 
       if (approvalStatus == 'rejected' || approvalStatus == 'unverified') {
         await FirebaseAuth.instance.signOut();
+        authProvider.suppressNextAuthEvent();
         if (mounted) {
           _showSnackBar(
             'Your account cannot be accessed. Please contact support.',
@@ -253,19 +279,23 @@ class _LoginScreenState extends State<LoginScreen>
         return;
       }
 
-      // Approved — let RootRouter handle routing
+      // Approved — resume listener then navigate
+      await authProvider.resumeAndFetchRole();
+
       if (mounted) {
         Navigator.of(context).pushAndRemoveUntil(
-          MaterialPageRoute(builder: (_) => const RootRouter()),
+          MaterialPageRoute(builder: (_) => const _main.RootRouter()),
           (route) => false,
         );
       }
     } on FirebaseAuthException catch (e) {
       await FirebaseAuth.instance.signOut();
+      context.read<auth.AuthProvider>().suppressNextAuthEvent();
       _showSnackBar(_friendlyError(e));
-    } catch (e) {
-      debugPrint('Google sign-in catch error: $e');
+    } catch (e, stack) {
+      debugPrint('Google sign-in catch error: $e\n$stack');
       await FirebaseAuth.instance.signOut();
+      context.read<auth.AuthProvider>().suppressNextAuthEvent();
       _showSnackBar('Google sign-in failed. Please try again.');
     } finally {
       if (mounted) setState(() => _isGoogleLoading = false);
@@ -461,7 +491,6 @@ class _BrandingHeader extends StatelessWidget {
   Widget build(BuildContext context) {
     return Column(
       children: [
-        // Logo mark
         Container(
           width: 72,
           height: 72,
@@ -667,7 +696,6 @@ class _GoogleButton extends StatelessWidget {
             : Row(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  // Google "G" logo — painted with Canvas for zero dependency
                   _GoogleLogoIcon(),
                   const SizedBox(width: 10),
                   const Text(
@@ -702,11 +730,9 @@ class _GoogleLogoPainter extends CustomPainter {
 
     final paint = Paint()..style = PaintingStyle.fill;
 
-    // Background circle
     paint.color = Colors.white;
     canvas.drawCircle(Offset(cx, cy), r, paint);
 
-    // Red (top-left arc)
     paint.color = const Color(0xFFEA4335);
     canvas.drawArc(
       Rect.fromCircle(center: Offset(cx, cy), radius: r * 0.78),
@@ -716,7 +742,6 @@ class _GoogleLogoPainter extends CustomPainter {
       paint,
     );
 
-    // Blue (bottom arc)
     paint.color = const Color(0xFF4285F4);
     canvas.drawArc(
       Rect.fromCircle(center: Offset(cx, cy), radius: r * 0.78),
@@ -726,7 +751,6 @@ class _GoogleLogoPainter extends CustomPainter {
       paint,
     );
 
-    // Green (top-right arc)
     paint.color = const Color(0xFF34A853);
     canvas.drawArc(
       Rect.fromCircle(center: Offset(cx, cy), radius: r * 0.78),
@@ -736,7 +760,6 @@ class _GoogleLogoPainter extends CustomPainter {
       paint,
     );
 
-    // Yellow (small arc)
     paint.color = const Color(0xFFFBBC05);
     canvas.drawArc(
       Rect.fromCircle(center: Offset(cx, cy), radius: r * 0.78),
@@ -746,11 +769,9 @@ class _GoogleLogoPainter extends CustomPainter {
       paint,
     );
 
-    // Inner white circle to carve out ring
     paint.color = Colors.white;
     canvas.drawCircle(Offset(cx, cy), r * 0.50, paint);
 
-    // Horizontal bar of the "G"
     paint.color = const Color(0xFF4285F4);
     canvas.drawRRect(
       RRect.fromRectAndRadius(

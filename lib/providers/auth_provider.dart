@@ -17,6 +17,11 @@ class AuthProvider extends ChangeNotifier {
 
   StreamSubscription<User?>? _authSubscription;
 
+  // FIX: flag to suppress authStateChanges while login_screen is doing
+  // its own Firestore read — prevents concurrent reads on the same doc
+  // that cause FIRESTORE INTERNAL ASSERTION FAILED on Flutter Web.
+  bool _suppressAuthListener = false;
+
   bool _isNeedsProfileCompletion = false;
   bool get isNeedsProfileCompletion => _isNeedsProfileCompletion;
 
@@ -38,7 +43,27 @@ class AuthProvider extends ChangeNotifier {
     _authSubscription = _auth.authStateChanges().listen(_onAuthStateChanged);
   }
 
+  /// Call this before doing a manual signIn to prevent the listener
+  /// from racing with the login screen's own Firestore read.
+  void suppressNextAuthEvent() {
+    _suppressAuthListener = true;
+  }
+
+  /// Call this to re-enable the listener and manually trigger a role fetch.
+  Future<void> resumeAndFetchRole() async {
+    _suppressAuthListener = false;
+    final current = _auth.currentUser;
+    if (current != null) {
+      await _onAuthStateChanged(current);
+    }
+  }
+
   Future<void> _onAuthStateChanged(User? firebaseUser) async {
+    if (_suppressAuthListener) {
+      debugPrint('AuthProvider: suppressed authStateChanges event');
+      return;
+    }
+
     if (firebaseUser == null) {
       _user = null;
       _role = null;
@@ -81,7 +106,6 @@ class AuthProvider extends ChangeNotifier {
       final approvalStatus = data['approval_status'] as String? ?? 'approved';
 
       // ── Unverified: OTP not yet confirmed ─────────────────────────────────
-      // Sign them out so they can't access app, but keep email for OTP screen
       if (approvalStatus == 'unverified') {
         debugPrint('AuthProvider: account $uid is unverified — signing out');
         _isUnverified = true;
@@ -89,8 +113,7 @@ class AuthProvider extends ChangeNotifier {
         _isPending = false;
         _isAccountDisabled = false;
         _role = null;
-        await _auth
-            .signOut(); // sign out silently — main.dart shows _UnverifiedScreen
+        await _auth.signOut();
         return;
       }
 

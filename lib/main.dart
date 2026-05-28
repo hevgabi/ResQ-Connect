@@ -482,7 +482,7 @@ class _RoleResolvingScreen extends StatefulWidget {
 
 class _RoleResolvingScreenState extends State<_RoleResolvingScreen> {
   int _retryCount = 0;
-  static const _maxRetries = 3;
+  static const _maxRetries = 5;
 
   @override
   void initState() {
@@ -497,11 +497,18 @@ class _RoleResolvingScreenState extends State<_RoleResolvingScreen> {
   Future<void> _retry() async {
     if (!mounted) return;
     if (_retryCount >= _maxRetries) {
-      debugPrint('RootRouter: max retries reached, forcing logout');
+      debugPrint('RootRouter: max retries reached, signing out gracefully');
+      // Sign out cleanly and let RootRouter route to LoginScreen
+      // instead of forcing logout which can leave the user stuck.
       await context.read<AuthProvider>().logout();
       return;
     }
     setState(() => _retryCount++);
+
+    // Small delay before retry to let Firestore SDK settle
+    await Future.delayed(const Duration(seconds: 1));
+    if (!mounted) return;
+
     await context.read<AuthProvider>().refreshRole();
 
     if (mounted && context.read<AuthProvider>().role == null) {

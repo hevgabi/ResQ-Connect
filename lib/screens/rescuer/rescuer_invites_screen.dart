@@ -119,13 +119,14 @@ class _InviteCardState extends State<_InviteCard> {
             backgroundColor: const Color(0xFF1FAA59),
           ),
         );
+        Navigator.of(context).popUntil((route) => route.isFirst);
       }
     } catch (e) {
       setState(() => _isLoading = false);
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Failed to accept invite.')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Error: $e')));
       }
     }
   }
